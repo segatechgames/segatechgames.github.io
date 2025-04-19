@@ -2,65 +2,42 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>GayCraft</title>
+  <title>GayCraft 3D</title>
   <style>
-    body { margin: 0; overflow: hidden; font-family: sans-serif; }
+    body { margin: 0; overflow: hidden; }
     canvas { display: block; }
-
-    #blockPicker, #titleScreen, #optionsMenu {
+    #blockPicker {
       position: absolute;
+      top: 10px; left: 10px;
+      background: white; padding: 8px; border-radius: 5px;
+      z-index: 1; font-family: sans-serif;
+    }
+    #optionsMenu {
+      position: absolute;
+      top: 50px; left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0, 0, 0, 0.7); padding: 20px;
+      color: white; font-family: sans-serif;
+      display: none;
       z-index: 2;
     }
-
-    #blockPicker {
-      top: 10px;
-      left: 10px;
-      background: white;
-      padding: 8px;
-      border-radius: 5px;
-      display: none;
-    }
-
-    #titleScreen, #optionsMenu {
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background: #000000dd;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      flex-direction: column;
-      color: white;
-      font-size: 2em;
-    }
-
-    #optionsMenu {
-      display: none;
-    }
-
-    button {
-      font-size: 1em;
-      margin-top: 10px;
-      padding: 10px 20px;
-      cursor: pointer;
+    /* Watermark Style */
+    #watermark {
+      position: absolute;
+      bottom: 10px;
+      right: 10px;
+      font-family: sans-serif;
+      font-size: 18px;
+      color: rgba(255, 255, 255, 0.5);
+      z-index: 3;
+      pointer-events: none; /* Prevent interaction with the watermark */
     }
   </style>
 </head>
 <body>
-  <div id="titleScreen">
-    <h1>🌈 GayCraft</h1>
-    <button onclick="startGame()">Start Game</button>
-  </div>
-
-  <div id="optionsMenu">
-    <h2>Options</h2>
-    <button onclick="leaveExperience()">Leave Experience</button>
-    <button onclick="closeOptions()">Back to Game</button>
-  </div>
-
+  <!-- Block picker and Options menu -->
   <div id="blockPicker">
-    Block:
+    Block: 
     <select id="blockType">
       <option value="grass">Grass</option>
       <option value="stone">Stone</option>
@@ -69,16 +46,36 @@
     </select>
   </div>
 
+  <div id="optionsMenu">
+    <h3>Options</h3>
+    <button onclick="leaveExperience()">Leave Experience</button>
+    <button onclick="loadGame()">Load Game</button>
+    <button onclick="closeOptions()">Back to Game</button>
+  </div>
+
+  <!-- Watermark for GayCraft 1.5.10 -->
+  <div id="watermark">GayCraft 1.5.10</div>
+
   <script src="https://cdn.jsdelivr.net/npm/three@0.159.0/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/lz-string@1.4.4/libs/lz-string.min.js"></script>
   <script>
-    let scene, camera, renderer;
-    let blockType, yaw = 0, pitch = 0;
-    let velocityY = 0, isOnGround = false;
-    let world = [], keys = {};
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x87ceeb);
 
-    const blockSize = 1;
-    const blockGeometry = new THREE.BoxGeometry(blockSize, blockSize, blockSize);
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(0, 1.5, 5);
 
+    const renderer = new THREE.WebGLRenderer();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    // Lights
+    scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+    const light = new THREE.DirectionalLight(0xffffff, 0.6);
+    light.position.set(10, 20, 10);
+    scene.add(light);
+
+    // Block materials
     const materials = {
       grass: new THREE.MeshLambertMaterial({ color: 0x228B22 }),
       stone: new THREE.MeshLambertMaterial({ color: 0x808080 }),
@@ -86,170 +83,195 @@
       sand: new THREE.MeshLambertMaterial({ color: 0xFFF8DC }),
     };
 
-    const saveWorld = () => {
-      const data = world.map(b => ({
-        type: b.userData.type,
-        position: b.position.toArray()
-      }));
-      localStorage.setItem('gaycraft-save', JSON.stringify(data));
-    };
+    const blockSize = 1;
+    const blockGeometry = new THREE.BoxGeometry(blockSize, blockSize, blockSize);
+    const world = [];
 
-    const loadWorld = () => {
-      const saved = JSON.parse(localStorage.getItem('gaycraft-save') || '[]');
-      saved.forEach(({ type, position }) => {
-        const block = new THREE.Mesh(blockGeometry, materials[type]);
-        block.position.set(...position);
-        block.userData = { type };
+    // Create flat terrain at y = -1
+    for (let x = -10; x <= 10; x++) {
+      for (let z = -10; z <= 10; z++) {
+        const block = new THREE.Mesh(blockGeometry, materials.grass);
+        block.position.set(x, -1, z);
+        block.userData = { type: 'grass' };
         scene.add(block);
         world.push(block);
-      });
-    };
-
-    function initGame() {
-      document.getElementById('blockPicker').style.display = 'block';
-
-      scene = new THREE.Scene();
-      scene.background = new THREE.Color(0x87ceeb);
-
-      camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-      camera.position.set(0, 1.5, 5);
-
-      renderer = new THREE.WebGLRenderer();
-      renderer.setSize(window.innerWidth, window.innerHeight);
-      document.body.appendChild(renderer.domElement);
-
-      scene.add(new THREE.AmbientLight(0xffffff, 0.6));
-      const light = new THREE.DirectionalLight(0xffffff, 0.6);
-      light.position.set(10, 20, 10);
-      scene.add(light);
-
-      // Ground
-      for (let x = -10; x <= 10; x++) {
-        for (let z = -10; z <= 10; z++) {
-          const block = new THREE.Mesh(blockGeometry, materials.grass);
-          block.position.set(x, -1, z);
-          block.userData = { type: 'grass' };
-          scene.add(block);
-          world.push(block);
-        }
       }
-
-      loadWorld();
-
-      document.body.addEventListener('click', () => document.body.requestPointerLock());
-      document.addEventListener('mousemove', e => {
-        if (document.pointerLockElement === document.body) {
-          yaw -= e.movementX * 0.002;
-          pitch -= e.movementY * 0.002;
-          pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, pitch));
-        }
-      });
-
-      document.addEventListener('keydown', e => keys[e.key] = true);
-      document.addEventListener('keyup', e => keys[e.key] = false);
-
-      document.addEventListener('contextmenu', e => e.preventDefault());
-
-      const raycaster = new THREE.Raycaster();
-      document.addEventListener('mousedown', e => {
-        if (e.button === 0 || e.button === 2) {
-          raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
-          const intersects = raycaster.intersectObjects(world);
-          if (intersects.length > 0) {
-            const hit = intersects[0];
-            if (e.button === 0) {
-              scene.remove(hit.object);
-              world = world.filter(obj => obj !== hit.object);
-            } else {
-              const pos = hit.point.clone().add(hit.face.normal.clone().multiplyScalar(0.5)).floor();
-              const exists = world.find(b => b.position.equals(pos));
-              if (!exists) {
-                const block = new THREE.Mesh(blockGeometry, materials[blockType.value]);
-                block.position.copy(pos);
-                block.userData = { type: blockType.value };
-                scene.add(block);
-                world.push(block);
-              }
-            }
-          }
-        }
-      });
-
-      window.addEventListener('resize', () => {
-        camera.aspect = window.innerWidth / window.innerHeight;
-        camera.updateProjectionMatrix();
-        renderer.setSize(window.innerWidth, window.innerHeight);
-      });
-
-      animate();
     }
 
-    function animate() {
-      requestAnimationFrame(animate);
-      movePlayer();
-      renderer.render(scene, camera);
-    }
+    // Pointer lock
+    document.body.addEventListener('click', () => document.body.requestPointerLock());
+
+    let yaw = 0, pitch = 0;
+
+    // Optional mouse look
+    document.addEventListener('mousemove', (e) => {
+      if (document.pointerLockElement === document.body) {
+        yaw -= e.movementX * 0.002;
+        pitch -= e.movementY * 0.002;
+        pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, pitch));
+      }
+    });
+
+    // Movement keys
+    const keys = {};
+    document.addEventListener('keydown', e => keys[e.key] = true);
+    document.addEventListener('keyup', e => keys[e.key] = false);
+
+    let velocityY = 0;
+    let isOnGround = false;
 
     function movePlayer() {
       const speed = 0.1;
-      const dir = new THREE.Vector3();
-      if (keys['w']) dir.z -= 1;
-      if (keys['s']) dir.z += 1;
-      if (keys['a']) dir.x -= 1;
-      if (keys['d']) dir.x += 1;
+      const rotSpeed = 0.03;
+      const direction = new THREE.Vector3();
+      const walkDir = new THREE.Vector3();
 
-      dir.normalize().applyEuler(new THREE.Euler(0, yaw, 0));
-      camera.position.add(dir.multiplyScalar(speed));
+      if (keys['w'] || keys['W']) direction.z -= 1;
+      if (keys['s'] || keys['S']) direction.z += 1;
+      if (keys['a'] || keys['A']) direction.x -= 1;
+      if (keys['d'] || keys['D']) direction.x += 1;
+
+      direction.normalize();
+      walkDir.copy(direction).applyEuler(new THREE.Euler(0, yaw, 0));
+      camera.position.add(walkDir.multiplyScalar(speed));
 
       velocityY -= 0.01;
       camera.position.y += velocityY;
+
       if (camera.position.y <= 1.5) {
         camera.position.y = 1.5;
         velocityY = 0;
         isOnGround = true;
       }
 
-      if (keys[' '] && isOnGround) {
+      if ((keys[' '] || keys['Space']) && isOnGround) {
         velocityY = 0.2;
         isOnGround = false;
       }
 
-      if (keys['ArrowLeft']) yaw += 0.03;
-      if (keys['ArrowRight']) yaw -= 0.03;
+      if (keys['ArrowLeft']) yaw += rotSpeed;
+      if (keys['ArrowRight']) yaw -= rotSpeed;
 
       camera.rotation.set(pitch, yaw, 0);
     }
 
-    function startGame() {
-      document.getElementById('titleScreen').style.display = 'none';
-      initGame();
+    // Raycasting for placing/breaking blocks
+    const raycaster = new THREE.Raycaster();
+    let highlightedBlock = null;
+
+    document.addEventListener('mousedown', (e) => {
+      if (e.button === 0 || e.button === 2) {
+        raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+        const intersects = raycaster.intersectObjects(world);
+        if (intersects.length > 0) {
+          const hit = intersects[0];
+          if (e.button === 0) {
+            scene.remove(hit.object);
+            const i = world.indexOf(hit.object);
+            if (i !== -1) world.splice(i, 1);
+          } else if (e.button === 2) {
+            const pos = hit.point.clone().add(hit.face.normal.clone().multiplyScalar(0.5)).floor();
+            const block = new THREE.Mesh(blockGeometry, materials[blockType.value]);
+            block.position.copy(pos);
+            block.userData = { type: blockType.value };
+            scene.add(block);
+            world.push(block);
+          }
+        }
+      }
+    });
+
+    // Highlighting block
+    function highlightBlock() {
+      raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+      const intersects = raycaster.intersectObjects(world);
+      if (intersects.length > 0) {
+        if (highlightedBlock) {
+          highlightedBlock.material.transparent = false;
+        }
+        highlightedBlock = intersects[0].object;
+        highlightedBlock.material.transparent = true;
+        highlightedBlock.material.opacity = 0.5;
+      }
     }
 
+    // Saving the game with date-time stamp
+    function saveGame() {
+      const saveData = world.map(block => ({
+        type: block.userData.type,
+        position: block.position.toArray()
+      }));
+      const compressedData = LZString.compressToUTF16(JSON.stringify(saveData));
+      const timestamp = new Date().toISOString().replace(/[:]/g, '-').split('.')[0];
+      const fileName = `save-${timestamp}.json`;
+
+      const blob = new Blob([compressedData], { type: 'application/json' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = fileName;
+      link.click();
+    }
+
+    // Load game from localStorage
+    function loadGame() {
+      const savedData = localStorage.getItem('gameSave');
+      if (savedData) {
+        const decompressedData = LZString.decompressFromUTF16(savedData);
+        const blocks = JSON.parse(decompressedData);
+        blocks.forEach(blockData => {
+          const block = new THREE.Mesh(blockGeometry, materials[blockData.type]);
+          block.position.fromArray(blockData.position);
+          scene.add(block);
+          world.push(block);
+        });
+      }
+    }
+
+    // Leave Experience button
+    function leaveExperience() {
+      saveGame();
+      window.location.href = "https://segatechgames.github.io/";
+    }
+
+    // Open/Close Options menu
+    let isInOptions = false;
+
     function openOptions() {
-      document.getElementById('optionsMenu').style.display = 'flex';
+      document.getElementById('optionsMenu').style.display = 'block';
+      isInOptions = true;
     }
 
     function closeOptions() {
       document.getElementById('optionsMenu').style.display = 'none';
+      isInOptions = false;
     }
 
-    function leaveExperience() {
-      saveWorld();
-      const dataStr = localStorage.getItem('gaycraft-save');
-      const blob = new Blob([dataStr], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "gaycraft-save.json";
-      a.click();
-      URL.revokeObjectURL(url);
-    }
-
-    document.addEventListener('keydown', e => {
-      if (e.key === 'o') openOptions();
+    // Listen for key presses
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'o' || e.key === 'O') openOptions();
+      if (e.key === 'Escape') closeOptions();
     });
 
-    blockType = document.getElementById('blockType');
+    // Animation loop
+    function animate() {
+      requestAnimationFrame(animate);
+      movePlayer();
+      highlightBlock();
+      renderer.render(scene, camera);
+    }
+
+    animate();
+
+    // Resize
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    // Load game from localStorage when the page is loaded
+    loadGame();
+
   </script>
 </body>
 </html>
