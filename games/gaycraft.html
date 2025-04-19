@@ -1,8 +1,8 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <title>GayCraft 3D</title>
+  <meta charset="UTF-8">
+  <title>GayCraft 1.5.10</title>
   <style>
     body { margin: 0; overflow: hidden; }
     canvas { display: block; }
@@ -12,32 +12,44 @@
       background: white; padding: 8px; border-radius: 5px;
       z-index: 1; font-family: sans-serif;
     }
-    #optionsMenu {
-      position: absolute;
-      top: 50px; left: 50%;
-      transform: translateX(-50%);
-      background: rgba(0, 0, 0, 0.7); padding: 20px;
-      color: white; font-family: sans-serif;
-      display: none;
-      z-index: 2;
-    }
-    /* Watermark Style */
+
     #watermark {
       position: absolute;
-      bottom: 10px;
+      top: 10px;
       right: 10px;
-      font-family: sans-serif;
-      font-size: 18px;
-      color: rgba(255, 255, 255, 0.5);
-      z-index: 3;
-      pointer-events: none; /* Prevent interaction with the watermark */
+      font-size: 20px;
+      color: rgba(255, 255, 255, 0.7);
+      z-index: 10;
+      pointer-events: none;
+    }
+
+    #optionsMenu {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(0, 0, 0, 0.7);
+      padding: 20px;
+      display: none;
+      color: white;
+      border-radius: 10px;
+    }
+
+    #crosshair {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 5px;
+      height: 5px;
+      background-color: white;
+      z-index: 10;
     }
   </style>
 </head>
 <body>
-  <!-- Block picker and Options menu -->
   <div id="blockPicker">
-    Block: 
+    Block:
     <select id="blockType">
       <option value="grass">Grass</option>
       <option value="stone">Stone</option>
@@ -45,19 +57,13 @@
       <option value="sand">Sand</option>
     </select>
   </div>
-
-  <div id="optionsMenu">
-    <h3>Options</h3>
-    <button onclick="leaveExperience()">Leave Experience</button>
-    <button onclick="loadGame()">Load Game</button>
-    <button onclick="closeOptions()">Back to Game</button>
-  </div>
-
-  <!-- Watermark for GayCraft 1.5.10 -->
   <div id="watermark">GayCraft 1.5.10</div>
-
+  <div id="optionsMenu">
+    <button onclick="saveGame()">Save Game</button>
+    <button onclick="closeOptions()">Close</button>
+  </div>
   <script src="https://cdn.jsdelivr.net/npm/three@0.159.0/build/three.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/lz-string@1.4.4/libs/lz-string.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.4.4/lz-string.min.js"></script>
   <script>
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x87ceeb);
@@ -135,7 +141,7 @@
       walkDir.copy(direction).applyEuler(new THREE.Euler(0, yaw, 0));
       camera.position.add(walkDir.multiplyScalar(speed));
 
-      velocityY -= 0.01;
+      velocityY -= 0.02; // Gravity effect
       camera.position.y += velocityY;
 
       if (camera.position.y <= 1.5) {
@@ -145,7 +151,7 @@
       }
 
       if ((keys[' '] || keys['Space']) && isOnGround) {
-        velocityY = 0.2;
+        velocityY = 0.25; // Jump force
         isOnGround = false;
       }
 
@@ -159,29 +165,6 @@
     const raycaster = new THREE.Raycaster();
     let highlightedBlock = null;
 
-    document.addEventListener('mousedown', (e) => {
-      if (e.button === 0 || e.button === 2) {
-        raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
-        const intersects = raycaster.intersectObjects(world);
-        if (intersects.length > 0) {
-          const hit = intersects[0];
-          if (e.button === 0) {
-            scene.remove(hit.object);
-            const i = world.indexOf(hit.object);
-            if (i !== -1) world.splice(i, 1);
-          } else if (e.button === 2) {
-            const pos = hit.point.clone().add(hit.face.normal.clone().multiplyScalar(0.5)).floor();
-            const block = new THREE.Mesh(blockGeometry, materials[blockType.value]);
-            block.position.copy(pos);
-            block.userData = { type: blockType.value };
-            scene.add(block);
-            world.push(block);
-          }
-        }
-      }
-    });
-
-    // Highlighting block
     function highlightBlock() {
       raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
       const intersects = raycaster.intersectObjects(world);
@@ -246,12 +229,6 @@
       isInOptions = false;
     }
 
-    // Listen for key presses
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'o' || e.key === 'O') openOptions();
-      if (e.key === 'Escape') closeOptions();
-    });
-
     // Animation loop
     function animate() {
       requestAnimationFrame(animate);
@@ -260,7 +237,21 @@
       renderer.render(scene, camera);
     }
 
-    animate();
+    // Create crosshair in the middle like Minecraft
+    function createCrosshair() {
+      const crosshair = document.createElement('div');
+      crosshair.style.position = 'absolute';
+      crosshair.style.top = '50%';
+      crosshair.style.left = '50%';
+      crosshair.style.transform = 'translate(-50%, -50%)';
+      crosshair.style.width = '5px';
+      crosshair.style.height = '5px';
+      crosshair.style.backgroundColor = 'white';
+      crosshair.style.zIndex = '10';
+      document.body.appendChild(crosshair);
+    }
+
+    createCrosshair();
 
     // Resize
     window.addEventListener('resize', () => {
@@ -272,6 +263,7 @@
     // Load game from localStorage when the page is loaded
     loadGame();
 
+    animate();
   </script>
 </body>
 </html>
