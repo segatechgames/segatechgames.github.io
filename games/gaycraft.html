@@ -81,9 +81,10 @@
             display: none;
             gap: 0.5rem;
             flex-direction: column;
+            z-index: 1000;
         }
 
-        button {
+        #optionsMenu button {
             padding: 0.5rem 1rem;
             background: #444;
             border: none;
@@ -93,7 +94,7 @@
             transition: background 0.2s;
         }
 
-        button:hover {
+        #optionsMenu button:hover {
             background: #666;
         }
 
@@ -124,7 +125,9 @@
 
     <div id="crosshair"></div>
     <div id="optionsMenu">
-        <button onclick="saveGame()">Save World</button>
+        <button onclick="saveGame()">Save Game</button>
+        <button onclick="loadGame()">Load Game</button>
+        <button onclick="window.location.href='https://segatechgames.github.io/'">Exit</button>
         <button onclick="closeOptions()">Close</button>
     </div>
 
@@ -136,46 +139,37 @@
         const CONFIG = {
             WORLD_SIZE: 32,
             BLOCK_SIZE: 1,
-            MOVEMENT_SPEED: 0.15,
-            JUMP_FORCE: 0.35,
-            GRAVITY: 0.02,
+            MOVEMENT_SPEED: 5,
+            JUMP_FORCE: 8,
+            GRAVITY: 30,
+            MOUSE_SENSITIVITY: 0.002,
             PLAYER_HEIGHT: 1.8
         };
 
-        // Core Game Setup
+        // Scene Setup
         const scene = new THREE.Scene();
         scene.background = new THREE.Color(0x87ceeb);
         
+        // Camera
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
-        camera.position.set(0, CONFIG.PLAYER_HEIGHT, 5);
+        camera.position.set(0, 16, 0);
 
+        // Renderer
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.setPixelRatio(window.devicePixelRatio);
         document.body.appendChild(renderer.domElement);
 
         // Lighting
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
         scene.add(ambientLight);
 
-        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.6);
         directionalLight.position.set(100, 100, 50);
         scene.add(directionalLight);
 
-        // Player State
-        let yaw = 0;
-        let pitch = 0;
-        let velocityY = 0;
-        let isOnGround = false;
-        const keys = {};
-
-        // World Data
-        const world = new Map();
-        const blockGeometry = new THREE.BoxGeometry(CONFIG.BLOCK_SIZE, CONFIG.BLOCK_SIZE, CONFIG.BLOCK_SIZE);
-
-        // Texture Loading with Fallbacks
-        const textureLoader = new THREE.TextureLoader();
-        const createFallbackTexture = (color) => {
+        // Textures (Color Placeholders)
+        const createColorTexture = (color) => {
             const canvas = document.createElement('canvas');
             canvas.width = canvas.height = 16;
             const ctx = canvas.getContext('2d');
@@ -184,48 +178,45 @@
             return new THREE.CanvasTexture(canvas);
         };
 
-        const textures = {
-            grass_top: textureLoader.load('https://threejsfundamentals.org/threejs/resources/images/grass.png') || createFallbackTexture('#00ff00'),
-            grass_side: textureLoader.load('https://threejsfundamentals.org/threejs/resources/images/dirt.png') || createFallbackTexture('#666633'),
-            dirt: textureLoader.load('https://threejsfundamentals.org/threejs/resources/images/dirt.png') || createFallbackTexture('#663300'),
-            stone: textureLoader.load('https://threejsfundamentals.org/threejs/resources/images/stone.png') || createFallbackTexture('#888888'),
-            sand: textureLoader.load('https://threejsfundamentals.org/threejs/resources/images/sand.jpg') || createFallbackTexture('#ffff99'),
-            wood: textureLoader.load('https://threejsfundamentals.org/threejs/resources/images/wood.jpg') || createFallbackTexture('#996633'),
-            leaves: textureLoader.load('https://threejsfundamentals.org/threejs/resources/images/leaves.jpg') || createFallbackTexture('#00cc00'),
-        };
-
-        // Block Materials
         const materials = {
-            grass: new THREE.MeshLambertMaterial({
-                map: textures.grass_side,
-                vertexColors: THREE.VertexColors,
-            }),
-            dirt: new THREE.MeshLambertMaterial({ map: textures.dirt }),
-            stone: new THREE.MeshLambertMaterial({ map: textures.stone }),
-            sand: new THREE.MeshLambertMaterial({ map: textures.sand }),
-            wood: new THREE.MeshLambertMaterial({ map: textures.wood }),
+            grass: new THREE.MeshLambertMaterial({ map: createColorTexture('#00aa00') }),
+            stone: new THREE.MeshLambertMaterial({ map: createColorTexture('#888888') }),
+            dirt: new THREE.MeshLambertMaterial({ map: createColorTexture('#664411') }),
+            sand: new THREE.MeshLambertMaterial({ map: createColorTexture('#ffff99') }),
+            wood: new THREE.MeshLambertMaterial({ map: createColorTexture('#996633') }),
             leaves: new THREE.MeshLambertMaterial({ 
-                map: textures.leaves,
+                map: createColorTexture('#00cc00'),
                 transparent: true,
                 alphaTest: 0.5
             }),
         };
 
-        // Block Highlight System
-        const highlightMaterial = new THREE.MeshBasicMaterial({ 
-            color: 0xffff00,
-            transparent: true,
-            opacity: 0.5
-        });
-        let highlightCube = new THREE.Mesh(blockGeometry, highlightMaterial);
-        scene.add(highlightCube);
+        // World Data
+        const world = new Map();
+        const blockGeometry = new THREE.BoxGeometry(CONFIG.BLOCK_SIZE, CONFIG.BLOCK_SIZE, CONFIG.BLOCK_SIZE);
 
-        // World Generation
+        // Player State
+        const player = {
+            position: new THREE.Vector3(0, 16, 0),
+            velocity: new THREE.Vector3(),
+            yaw: 0,
+            pitch: 0,
+            onGround: false
+        };
+
+        // Controls
+        const keys = {};
+        let mouseDelta = new THREE.Vector2();
+        let highlightCube = null;
+
+        // Generate World
         function generateWorld() {
-            for (let x = -CONFIG.WORLD_SIZE; x <= CONFIG.WORLD_SIZE; x++) {
-                for (let z = -CONFIG.WORLD_SIZE; z <= CONFIG.WORLD_SIZE; z++) {
-                    addBlock(x, -1, z, 'grass');
-                    addBlock(x, -2, z, 'dirt');
+            for(let x = -CONFIG.WORLD_SIZE; x <= CONFIG.WORLD_SIZE; x++) {
+                for(let z = -CONFIG.WORLD_SIZE; z <= CONFIG.WORLD_SIZE; z++) {
+                    addBlock(x, 0, z, 'grass');
+                    for(let y = -1; y >= -3; y--) {
+                        addBlock(x, y, z, 'dirt');
+                    }
                 }
             }
         }
@@ -233,7 +224,7 @@
         // Block Management
         function addBlock(x, y, z, type) {
             const key = `${x},${y},${z}`;
-            if (world.has(key)) return;
+            if(world.has(key)) return;
 
             const block = new THREE.Mesh(blockGeometry, materials[type]);
             block.position.set(x, y, z);
@@ -245,103 +236,107 @@
         function removeBlock(x, y, z) {
             const key = `${x},${y},${z}`;
             const block = world.get(key);
-            if (block) {
+            if(block) {
                 scene.remove(block);
-                block.geometry.dispose();
                 world.delete(key);
             }
         }
 
         // Player Movement
-        function updateMovement() {
-            const direction = new THREE.Vector3();
-            const forward = new THREE.Vector3(0, 0, -1).applyEuler(new THREE.Euler(0, yaw, 0));
-            const right = new THREE.Vector3(1, 0, 0).applyEuler(new THREE.Euler(0, yaw, 0));
+        function updatePlayer(deltaTime) {
+            // Rotation
+            player.yaw -= mouseDelta.x * CONFIG.MOUSE_SENSITIVITY;
+            player.pitch -= mouseDelta.y * CONFIG.MOUSE_SENSITIVITY;
+            player.pitch = THREE.MathUtils.clamp(player.pitch, -Math.PI/2, Math.PI/2);
+            mouseDelta.set(0, 0);
 
-            if (keys.w) direction.add(forward);
-            if (keys.s) direction.add(forward.negate());
-            if (keys.a) direction.add(right.negate());
-            if (keys.d) direction.add(right);
+            // Movement
+            const forward = new THREE.Vector3(
+                Math.sin(player.yaw),
+                0,
+                Math.cos(player.yaw)
+            );
+            
+            const right = new THREE.Vector3(
+                Math.sin(player.yaw + Math.PI/2),
+                0,
+                Math.cos(player.yaw + Math.PI/2)
+            );
 
-            direction.normalize().multiplyScalar(CONFIG.MOVEMENT_SPEED);
-            camera.position.add(direction);
+            const move = new THREE.Vector3();
+            if(keys.w) move.add(forward);
+            if(keys.s) move.sub(forward);
+            if(keys.a) move.sub(right);
+            if(keys.d) move.add(right);
+            
+            move.normalize().multiplyScalar(CONFIG.MOVEMENT_SPEED * deltaTime);
+            player.velocity.x = move.x;
+            player.velocity.z = move.z;
 
-            // Gravity System
-            velocityY -= CONFIG.GRAVITY;
-            camera.position.y += velocityY;
-
-            // Ground Detection
-            if (camera.position.y < CONFIG.PLAYER_HEIGHT) {
-                camera.position.y = CONFIG.PLAYER_HEIGHT;
-                velocityY = 0;
-                isOnGround = true;
+            // Gravity
+            player.velocity.y -= CONFIG.GRAVITY * deltaTime;
+            
+            // Collision
+            const nextPos = player.position.clone().add(player.velocity.clone().multiplyScalar(deltaTime));
+            if(!checkCollision(nextPos)) {
+                player.position.copy(nextPos);
+                player.onGround = false;
+            } else {
+                player.velocity.y = 0;
+                player.onGround = true;
             }
 
-            // Jumping
-            if (keys[' '] && isOnGround) {
-                velocityY = CONFIG.JUMP_FORCE;
-                isOnGround = false;
+            // Jump
+            if(keys[' '] && player.onGround) {
+                player.velocity.y = CONFIG.JUMP_FORCE;
+                player.onGround = false;
             }
+
+            // Update Camera
+            camera.position.copy(player.position);
+            camera.rotation.set(player.pitch, player.yaw, 0, 'YXZ');
+        }
+
+        function checkCollision(position) {
+            const playerBox = new THREE.Box3(
+                new THREE.Vector3().copy(position).sub(new THREE.Vector3(0.3, 0, 0.3)),
+                new THREE.Vector3().copy(position).add(new THREE.Vector3(0.3, CONFIG.PLAYER_HEIGHT, 0.3))
+            );
+
+            for(const block of world.values()) {
+                const blockBox = new THREE.Box3().setFromObject(block);
+                if(playerBox.intersectsBox(blockBox)) return true;
+            }
+            return false;
         }
 
         // Block Interaction
-        const raycaster = new THREE.Raycaster();
-        
-        function updateBlockInteraction() {
+        function updateBlockHighlight() {
+            const raycaster = new THREE.Raycaster();
             raycaster.setFromCamera(new THREE.Vector2(), camera);
             const intersects = raycaster.intersectObjects([...world.values()]);
             
-            if (intersects.length > 0) {
+            if(highlightCube) scene.remove(highlightCube);
+            
+            if(intersects.length > 0) {
                 const intersect = intersects[0];
                 const faceNormal = intersect.face.normal;
-                const pos = intersect.object.position.clone();
-                const placePos = pos.add(faceNormal);
+                const placePos = intersect.object.position.clone().add(faceNormal);
                 
+                highlightCube = new THREE.Mesh(
+                    blockGeometry,
+                    new THREE.MeshBasicMaterial({ 
+                        color: 0xffff00,
+                        transparent: true,
+                        opacity: 0.5
+                    })
+                );
                 highlightCube.position.copy(placePos);
-                highlightCube.visible = true;
-            } else {
-                highlightCube.visible = false;
+                scene.add(highlightCube);
             }
         }
 
-        function handleBlockInteraction(e) {
-            if (document.pointerLockElement === document.body) {
-                raycaster.setFromCamera(new THREE.Vector2(), camera);
-                const intersects = raycaster.intersectObjects([...world.values()]);
-                
-                if (intersects.length > 0) {
-                    const intersect = intersects[0];
-                    const pos = intersect.object.position;
-                    
-                    if (e.button === 0) { // Left click - break block
-                        removeBlock(pos.x, pos.y, pos.z);
-                    } else if (e.button === 2) { // Right click - place block
-                        const faceNormal = intersect.face.normal;
-                        const placePos = pos.clone().add(faceNormal);
-                        const type = document.getElementById('blockType').value;
-                        addBlock(placePos.x, placePos.y, placePos.z, type);
-                    }
-                }
-            }
-        }
-
-        // Event Listeners
-        document.addEventListener('keydown', e => keys[e.key.toLowerCase()] = true);
-        document.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
-        
-        document.addEventListener('click', handleBlockInteraction);
-        document.addEventListener('contextmenu', e => e.preventDefault());
-
-        document.addEventListener('mousemove', e => {
-            if (document.pointerLockElement === document.body) {
-                yaw -= e.movementX * 0.002;
-                pitch -= e.movementY * 0.002;
-                pitch = Math.max(-Math.PI/2, Math.min(Math.PI/2, pitch));
-                camera.rotation.set(pitch, yaw, 0);
-            }
-        });
-
-        // Save System
+        // Save/Load System
         function saveGame() {
             const saveData = Array.from(world.values()).map(block => ({
                 type: block.userData.type,
@@ -357,22 +352,98 @@
             link.click();
         }
 
+        function loadGame() {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.gcsave';
+            input.onchange = e => {
+                const file = e.target.files[0];
+                const reader = new FileReader();
+                reader.onload = event => {
+                    const data = LZString.decompressFromUTF16(event.target.result);
+                    const saveData = JSON.parse(data);
+                    
+                    // Clear existing world
+                    world.forEach(block => scene.remove(block));
+                    world.clear();
+                    
+                    // Load new blocks
+                    saveData.forEach(block => {
+                        addBlock(...block.position, block.type);
+                    });
+                };
+                reader.readAsText(file);
+            };
+            input.click();
+        }
+
+        // Menu Controls
+        function toggleOptions() {
+            const menu = document.getElementById('optionsMenu');
+            menu.style.display = menu.style.display === 'none' ? 'flex' : 'none';
+        }
+
         function closeOptions() {
             document.getElementById('optionsMenu').style.display = 'none';
         }
 
+        // Event Listeners
+        document.addEventListener('keydown', e => {
+            keys[e.key.toLowerCase()] = true;
+            if(e.key === 'Escape') toggleOptions();
+        });
+        
+        document.addEventListener('keyup', e => {
+            keys[e.key.toLowerCase()] = false;
+        });
+
+        document.addEventListener('mousedown', e => {
+            if(document.pointerLockElement !== document.body) {
+                document.body.requestPointerLock();
+            } else {
+                const raycaster = new THREE.Raycaster();
+                raycaster.setFromCamera(new THREE.Vector2(), camera);
+                const intersects = raycaster.intersectObjects([...world.values()]);
+                
+                if(intersects.length > 0) {
+                    const block = intersects[0].object;
+                    if(e.button === 0) { // Left click
+                        removeBlock(block.position.x, block.position.y, block.position.z);
+                    } else if(e.button === 2) { // Right click
+                        const faceNormal = intersects[0].face.normal;
+                        const pos = block.position.clone().add(faceNormal);
+                        const type = document.getElementById('blockType').value;
+                        addBlock(pos.x, pos.y, pos.z, type);
+                    }
+                }
+            }
+        });
+
+        document.addEventListener('mousemove', e => {
+            if(document.pointerLockElement === document.body) {
+                mouseDelta.set(e.movementX, e.movementY);
+            }
+        });
+
+        document.addEventListener('contextmenu', e => e.preventDefault());
+
         // Game Loop
-        function animate() {
-            requestAnimationFrame(animate);
-            updateMovement();
-            updateBlockInteraction();
+        let lastTime = 0;
+        function animate(timestamp) {
+            const deltaTime = (timestamp - lastTime) / 1000;
+            lastTime = timestamp;
+            
+            updatePlayer(deltaTime);
+            updateBlockHighlight();
             renderer.render(scene, camera);
+            requestAnimationFrame(animate);
         }
 
         // Initialization
         generateWorld();
         animate();
 
+        // Window Resize
         window.addEventListener('resize', () => {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
