@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>GayCraft 1.5.10</title>
+  <title>GayCraft 1.5.60</title>
   <style>
     body { margin: 0; overflow: hidden; }
     canvas { display: block; }
@@ -55,6 +55,8 @@
       <option value="stone">Stone</option>
       <option value="dirt">Dirt</option>
       <option value="sand">Sand</option>
+      <option value="wood">Wood</option>
+      <option value="leaves">Leaves</option>
     </select>
   </div>
   <div id="watermark">GayCraft 1.5.10</div>
@@ -81,26 +83,44 @@
     light.position.set(10, 20, 10);
     scene.add(light);
 
-    // Block materials
-    const materials = {
-      grass: new THREE.MeshLambertMaterial({ color: 0x228B22 }),
-      stone: new THREE.MeshLambertMaterial({ color: 0x808080 }),
-      dirt: new THREE.MeshLambertMaterial({ color: 0x8B4513 }),
-      sand: new THREE.MeshLambertMaterial({ color: 0xFFF8DC }),
+    // Textures
+    const textures = {
+      grass: new THREE.MeshLambertMaterial({ map: new THREE.TextureLoader().load('https://example.com/grass_texture.jpg') }),
+      stone: new THREE.MeshLambertMaterial({ map: new THREE.TextureLoader().load('https://example.com/stone_texture.jpg') }),
+      dirt: new THREE.MeshLambertMaterial({ map: new THREE.TextureLoader().load('https://example.com/dirt_texture.jpg') }),
+      sand: new THREE.MeshLambertMaterial({ map: new THREE.TextureLoader().load('https://example.com/sand_texture.jpg') }),
+      wood: new THREE.MeshLambertMaterial({ map: new THREE.TextureLoader().load('https://example.com/wood_texture.jpg') }),
+      leaves: new THREE.MeshLambertMaterial({ map: new THREE.TextureLoader().load('https://example.com/leaves_texture.jpg') }),
     };
 
     const blockSize = 1;
     const blockGeometry = new THREE.BoxGeometry(blockSize, blockSize, blockSize);
     const world = [];
 
-    // Create flat terrain at y = -1
-    for (let x = -10; x <= 10; x++) {
-      for (let z = -10; z <= 10; z++) {
-        const block = new THREE.Mesh(blockGeometry, materials.grass);
-        block.position.set(x, -1, z);
-        block.userData = { type: 'grass' };
-        scene.add(block);
-        world.push(block);
+    // Generate terrain with trees
+    function generateWorld() {
+      // Flat terrain
+      for (let x = -10; x <= 10; x++) {
+        for (let z = -10; z <= 10; z++) {
+          const block = new THREE.Mesh(blockGeometry, textures.grass);
+          block.position.set(x, -1, z);
+          block.userData = { type: 'grass' };
+          scene.add(block);
+          world.push(block);
+        }
+      }
+
+      // Trees (simple version)
+      for (let x = -8; x <= 8; x += 4) {
+        for (let z = -8; z <= 8; z += 4) {
+          const treeBase = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 2), textures.wood);
+          treeBase.position.set(x, 0, z);
+          scene.add(treeBase);
+
+          const treeLeaves = new THREE.Mesh(new THREE.SphereGeometry(1, 8, 8), textures.leaves);
+          treeLeaves.position.set(x, 2, z);
+          scene.add(treeLeaves);
+        }
       }
     }
 
@@ -155,9 +175,6 @@
         isOnGround = false;
       }
 
-      if (keys['ArrowLeft']) yaw += rotSpeed;
-      if (keys['ArrowRight']) yaw -= rotSpeed;
-
       camera.rotation.set(pitch, yaw, 0);
     }
 
@@ -202,7 +219,7 @@
         const decompressedData = LZString.decompressFromUTF16(savedData);
         const blocks = JSON.parse(decompressedData);
         blocks.forEach(blockData => {
-          const block = new THREE.Mesh(blockGeometry, materials[blockData.type]);
+          const block = new THREE.Mesh(blockGeometry, textures[blockData.type]);
           block.position.fromArray(blockData.position);
           scene.add(block);
           world.push(block);
@@ -262,6 +279,9 @@
 
     // Load game from localStorage when the page is loaded
     loadGame();
+
+    // Generate the world
+    generateWorld();
 
     animate();
   </script>
