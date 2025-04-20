@@ -1,8 +1,10 @@
 <!DOCTYPE html>
+<!-- a large gaycraft upgrade. -->
+<!-- we worked hard! -->
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>GayCraft 1.5.60</title>
+  <title>GayCraft 1.5.10</title>
   <style>
     body { margin: 0; overflow: hidden; }
     canvas { display: block; }
@@ -83,53 +85,84 @@
     light.position.set(10, 20, 10);
     scene.add(light);
 
-    // Textures
+    // Load Textures
     const textures = {
-      grass: new THREE.MeshLambertMaterial({ map: new THREE.TextureLoader().load('https://example.com/grass_texture.jpg') }),
-      stone: new THREE.MeshLambertMaterial({ map: new THREE.TextureLoader().load('https://example.com/stone_texture.jpg') }),
-      dirt: new THREE.MeshLambertMaterial({ map: new THREE.TextureLoader().load('https://example.com/dirt_texture.jpg') }),
-      sand: new THREE.MeshLambertMaterial({ map: new THREE.TextureLoader().load('https://example.com/sand_texture.jpg') }),
-      wood: new THREE.MeshLambertMaterial({ map: new THREE.TextureLoader().load('https://example.com/wood_texture.jpg') }),
-      leaves: new THREE.MeshLambertMaterial({ map: new THREE.TextureLoader().load('https://example.com/leaves_texture.jpg') }),
+      grassTop: new THREE.TextureLoader().load('https://example.com/grass_top_texture.jpg'),
+      grassSide: new THREE.TextureLoader().load('https://example.com/grass_side_texture.jpg'),
+      stone: new THREE.TextureLoader().load('https://example.com/stone_texture.jpg'),
+      dirt: new THREE.TextureLoader().load('https://example.com/dirt_texture.jpg'),
+      sand: new THREE.TextureLoader().load('https://example.com/sand_texture.jpg'),
+      wood: new THREE.TextureLoader().load('https://example.com/wood_texture.jpg'),
+      leaves: new THREE.TextureLoader().load('https://example.com/leaves_texture.jpg'),
     };
 
     const blockSize = 1;
     const blockGeometry = new THREE.BoxGeometry(blockSize, blockSize, blockSize);
     const world = [];
 
-    // Generate terrain with trees
+    // Block Materials with textures
+    function getBlockMaterial(type) {
+      switch (type) {
+        case 'grass':
+          return new THREE.MeshStandardMaterial({
+            map: textures.grassTop, // Top texture
+            side: THREE.DoubleSide,
+            normalMap: textures.grassSide, // Side texture
+          });
+        case 'stone':
+          return new THREE.MeshStandardMaterial({ map: textures.stone });
+        case 'dirt':
+          return new THREE.MeshStandardMaterial({ map: textures.dirt });
+        case 'sand':
+          return new THREE.MeshStandardMaterial({ map: textures.sand });
+        case 'wood':
+          return new THREE.MeshStandardMaterial({ map: textures.wood });
+        case 'leaves':
+          return new THREE.MeshStandardMaterial({ map: textures.leaves, transparent: true });
+        default:
+          return new THREE.MeshStandardMaterial();
+      }
+    }
+
+    // Generate terrain with better textures and trees
     function generateWorld() {
-      // Flat terrain
-      for (let x = -10; x <= 10; x++) {
-        for (let z = -10; z <= 10; z++) {
-          const block = new THREE.Mesh(blockGeometry, textures.grass);
+      // Larger world generation (100x100 grid)
+      for (let x = -50; x <= 50; x++) {
+        for (let z = -50; z <= 50; z++) {
+          const block = new THREE.Mesh(blockGeometry, getBlockMaterial('grass'));
           block.position.set(x, -1, z);
           block.userData = { type: 'grass' };
           scene.add(block);
           world.push(block);
+
+          // Dirt under the grass
+          const dirt = new THREE.Mesh(blockGeometry, getBlockMaterial('dirt'));
+          dirt.position.set(x, -2, z);
+          dirt.userData = { type: 'dirt' };
+          scene.add(dirt);
+          world.push(dirt);
         }
       }
 
-      // Trees (simple version)
-      for (let x = -8; x <= 8; x += 4) {
-        for (let z = -8; z <= 8; z += 4) {
-          const treeBase = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 2), textures.wood);
+      // Trees (with better trunks and leaves)
+      for (let x = -40; x <= 40; x += 10) {
+        for (let z = -40; z <= 40; z += 10) {
+          const treeBase = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 3), getBlockMaterial('wood'));
           treeBase.position.set(x, 0, z);
           scene.add(treeBase);
 
-          const treeLeaves = new THREE.Mesh(new THREE.SphereGeometry(1, 8, 8), textures.leaves);
-          treeLeaves.position.set(x, 2, z);
+          const treeLeaves = new THREE.Mesh(new THREE.SphereGeometry(1.5, 8, 8), getBlockMaterial('leaves'));
+          treeLeaves.position.set(x, 3, z);
           scene.add(treeLeaves);
         }
       }
     }
 
-    // Pointer lock
+    // Pointer lock and mouse look
     document.body.addEventListener('click', () => document.body.requestPointerLock());
 
     let yaw = 0, pitch = 0;
 
-    // Optional mouse look
     document.addEventListener('mousemove', (e) => {
       if (document.pointerLockElement === document.body) {
         yaw -= e.movementX * 0.002;
@@ -212,27 +245,6 @@
       link.click();
     }
 
-    // Load game from localStorage
-    function loadGame() {
-      const savedData = localStorage.getItem('gameSave');
-      if (savedData) {
-        const decompressedData = LZString.decompressFromUTF16(savedData);
-        const blocks = JSON.parse(decompressedData);
-        blocks.forEach(blockData => {
-          const block = new THREE.Mesh(blockGeometry, textures[blockData.type]);
-          block.position.fromArray(blockData.position);
-          scene.add(block);
-          world.push(block);
-        });
-      }
-    }
-
-    // Leave Experience button
-    function leaveExperience() {
-      saveGame();
-      window.location.href = "https://segatechgames.github.io/";
-    }
-
     // Open/Close Options menu
     let isInOptions = false;
 
@@ -277,10 +289,9 @@
       renderer.setSize(window.innerWidth, window.innerHeight);
     });
 
-    // Load game from localStorage when the page is loaded
-    loadGame();
-
     // Generate the world
+    // Of course, works like minecraft don't fuss.
+    // Anyways, just look at the game already.
     generateWorld();
 
     animate();
