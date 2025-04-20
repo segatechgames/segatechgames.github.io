@@ -1,6 +1,4 @@
 <!DOCTYPE html>
-<!-- a large gaycraft upgrade. -->
-<!-- we worked hard! -->
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -66,8 +64,10 @@
     <button onclick="saveGame()">Save Game</button>
     <button onclick="closeOptions()">Close</button>
   </div>
+
   <script src="https://cdn.jsdelivr.net/npm/three@0.159.0/build/three.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.4.4/lz-string.min.js"></script>
+
   <script>
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x87ceeb);
@@ -80,8 +80,9 @@
     document.body.appendChild(renderer.domElement);
 
     // Lights
-    scene.add(new THREE.AmbientLight(0xffffff, 0.6));
-    const light = new THREE.DirectionalLight(0xffffff, 0.6);
+    const ambientLight = new THREE.AmbientLight(0x404040, 1); // soft white light
+    scene.add(ambientLight);
+    const light = new THREE.DirectionalLight(0xffffff, 1); // strong light
     light.position.set(10, 20, 10);
     scene.add(light);
 
@@ -124,36 +125,24 @@
       }
     }
 
-    // Generate terrain with better textures and trees
+    // Generate terrain with trees
     function generateWorld() {
-      // Larger world generation (100x100 grid)
-      for (let x = -50; x <= 50; x++) {
-        for (let z = -50; z <= 50; z++) {
+      // Limiting the world size for better performance (smaller grid)
+      const worldSize = 20; // Adjust this value as needed
+
+      for (let x = -worldSize; x <= worldSize; x++) {
+        for (let z = -worldSize; z <= worldSize; z++) {
           const block = new THREE.Mesh(blockGeometry, getBlockMaterial('grass'));
           block.position.set(x, -1, z);
           block.userData = { type: 'grass' };
           scene.add(block);
           world.push(block);
 
-          // Dirt under the grass
           const dirt = new THREE.Mesh(blockGeometry, getBlockMaterial('dirt'));
           dirt.position.set(x, -2, z);
           dirt.userData = { type: 'dirt' };
           scene.add(dirt);
           world.push(dirt);
-        }
-      }
-
-      // Trees (with better trunks and leaves)
-      for (let x = -40; x <= 40; x += 10) {
-        for (let z = -40; z <= 40; z += 10) {
-          const treeBase = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 3), getBlockMaterial('wood'));
-          treeBase.position.set(x, 0, z);
-          scene.add(treeBase);
-
-          const treeLeaves = new THREE.Mesh(new THREE.SphereGeometry(1.5, 8, 8), getBlockMaterial('leaves'));
-          treeLeaves.position.set(x, 3, z);
-          scene.add(treeLeaves);
         }
       }
     }
@@ -162,7 +151,6 @@
     document.body.addEventListener('click', () => document.body.requestPointerLock());
 
     let yaw = 0, pitch = 0;
-
     document.addEventListener('mousemove', (e) => {
       if (document.pointerLockElement === document.body) {
         yaw -= e.movementX * 0.002;
@@ -228,7 +216,7 @@
       }
     }
 
-    // Saving the game with date-time stamp
+    // Save game
     function saveGame() {
       const saveData = world.map(block => ({
         type: block.userData.type,
@@ -246,16 +234,12 @@
     }
 
     // Open/Close Options menu
-    let isInOptions = false;
-
     function openOptions() {
       document.getElementById('optionsMenu').style.display = 'block';
-      isInOptions = true;
     }
 
     function closeOptions() {
       document.getElementById('optionsMenu').style.display = 'none';
-      isInOptions = false;
     }
 
     // Animation loop
@@ -266,7 +250,7 @@
       renderer.render(scene, camera);
     }
 
-    // Create crosshair in the middle like Minecraft
+    // Crosshair
     function createCrosshair() {
       const crosshair = document.createElement('div');
       crosshair.style.position = 'absolute';
@@ -282,18 +266,17 @@
 
     createCrosshair();
 
-    // Resize
+    // Resize event
     window.addEventListener('resize', () => {
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(window.innerWidth, window.innerHeight);
     });
 
-    // Generate the world
-    //
-    //
+    // Generate world
     generateWorld();
 
+    // Start animation loop
     animate();
   </script>
 </body>
