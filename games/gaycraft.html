@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GayCraft 2.0.0</title>
+    <title>GayCraft 2.2.0</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { overflow: hidden; font-family: 'Arial', sans-serif; }
@@ -17,11 +17,12 @@
             width: 4px; height: 4px; background: rgba(255,255,255,0.9); border-radius: 50%; }
         #optionsMenu { position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%);
             background: rgba(0,0,0,0.9); padding: 1.5rem; border-radius: 8px; color: white; display: none;
-            gap: 0.5rem; flex-direction: column; z-index: 1000; }
+            gap: 0.5rem; flex-direction: column; z-index: 1000; pointer-events: all; }
         button { padding: 0.5rem 1rem; background: #444; border: none; color: white; border-radius: 4px;
             cursor: pointer; transition: background 0.2s; }
         button:hover { background: #666; }
         select { padding: 0.25rem; background: #333; color: white; border: none; border-radius: 3px; }
+        #fileInput { display: none; }
     </style>
 </head>
 <body>
@@ -40,29 +41,33 @@
     </div>
     <div id="crosshair"></div>
     <div id="optionsMenu">
-        <button onclick="saveGame()">Save Game</button>
-        <button onclick="loadGame()">Load Game</button>
+        <button id="saveBtn">Save Game</button>
+        <button id="loadBtn">Load Game</button>
         <button onclick="window.location.href='https://segatechgames.github.io/'">Exit</button>
         <button onclick="closeOptions()">Close</button>
     </div>
+    <input type="file" id="fileInput" accept=".gaycraft"/>
 
     <script src="https://cdn.jsdelivr.net/npm/three@0.159.0/build/three.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.4.4/lz-string.min.js"></script>
 
     <script>
-        // Enhanced Configuration
+        // Optimized Configuration
         const CONFIG = {
-            WORLD_SIZE: 128,  // Larger world
+            WORLD_SIZE: 64,
             PLAYER_HEIGHT: 1.8,
             MOVEMENT_SPEED: 0.15,
             JUMP_FORCE: 0.35,
             GRAVITY: 0.02,
             MOUSE_SENSITIVITY: 0.002,
-            TREE_DENSITY: 0.02
+            TREE_DENSITY: 0.02,
+            RENDER_DISTANCE: 32,
+            CHUNK_SIZE: 16
         };
 
         // Core Game State
         let scene, camera, renderer, world = new Map();
+        let chunks = new Map();
         let player = { 
             position: new THREE.Vector3(0, 32, 0),
             velocity: new THREE.Vector3(),
@@ -72,6 +77,8 @@
             inventory: {}
         };
         let keys = {}, mouseDelta = new THREE.Vector2(), raycaster = new THREE.Raycaster();
+        let materials = {};
+        let blockGeometry = new THREE.BoxGeometry(1, 1, 1);
 
         // Initialize Game
         function init() {
@@ -84,21 +91,35 @@
                 camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
                 camera.position.copy(player.position);
                 
-                // Renderer Setup
-                renderer = new THREE.WebGLRenderer({ antialias: true });
+                // Renderer Setup with performance hints
+                renderer = new THREE.WebGLRenderer({ 
+                    antialias: true,
+                    powerPreference: "high-performance"
+                });
+                renderer.setPixelRatio(window.devicePixelRatio);
                 renderer.setSize(window.innerWidth, window.innerHeight);
                 document.body.appendChild(renderer.domElement);
 
-                // Enhanced Lighting
+                // Preload materials
+                materials = {
+                    grass: new THREE.MeshLambertMaterial({ color: 0x55aa44 }),
+                    stone: new THREE.MeshLambertMaterial({ color: 0x999999 }),
+                    dirt: new THREE.MeshLambertMaterial({ color: 0x886633 }),
+                    sand: new THREE.MeshLambertMaterial({ color: 0xffdd99 }),
+                    wood: new THREE.MeshLambertMaterial({ color: 0x774411 }),
+                    leaves: new THREE.MeshLambertMaterial({ color: 0x33aa33, transparent: true, opacity: 0.8 })
+                };
+
+                // Optimized Lighting
                 scene.add(new THREE.AmbientLight(0xffffff, 0.6));
                 const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
                 directionalLight.position.set(100, 100, 50);
-                directionalLight.castShadow = true;
                 scene.add(directionalLight);
 
-                // Generate Beautiful World
-                generateEnhancedWorld();
+                // Generate Optimized World
+                generateOptimizedWorld();
                 setupEventListeners();
+                setupMenuButtons();
                 animate();
 
             } catch (error) {
@@ -107,19 +128,8 @@
             }
         }
 
-        // Enhanced World Generation with Trees
-        function generateEnhancedWorld() {
-            const materials = {
-                grass: new THREE.MeshLambertMaterial({ color: 0x55aa44 }),
-                stone: new THREE.MeshLambertMaterial({ color: 0x999999 }),
-                dirt: new THREE.MeshLambertMaterial({ color: 0x886633 }),
-                sand: new THREE.MeshLambertMaterial({ color: 0xffdd99 }),
-                wood: new THREE.MeshLambertMaterial({ color: 0x774411 }),
-                leaves: new THREE.MeshLambertMaterial({ color: 0x33aa33, transparent: true, opacity: 0.8 })
-            };
-
-            const blockGeometry = new THREE.BoxGeometry(1, 1, 1);
-            
+        // Optimized World Generation with Chunk System
+        function generateOptimizedWorld() {
             // Generate terrain with height variation
             for(let x = -CONFIG.WORLD_SIZE; x <= CONFIG.WORLD_SIZE; x++) {
                 for(let z = -CONFIG.WORLD_SIZE; z <= CONFIG.WORLD_SIZE; z++) {
@@ -127,55 +137,77 @@
                     const height = Math.floor(Math.sin(x/10) * Math.cos(z/10) * 3) + 5;
                     
                     // Ground layers
-                    addBlock(x, height, z, 'grass', materials.grass, blockGeometry);
-                    addBlock(x, height-1, z, 'dirt', materials.dirt, blockGeometry);
+                    addBlock(x, height, z, 'grass');
+                    addBlock(x, height-1, z, 'dirt');
                     for(let y = height-2; y >= height-4; y--) {
-                        addBlock(x, y, z, 'dirt', materials.dirt, blockGeometry);
+                        addBlock(x, y, z, 'dirt');
                     }
                     for(let y = height-5; y >= -5; y--) {
-                        addBlock(x, y, z, 'stone', materials.stone, blockGeometry);
+                        addBlock(x, y, z, 'stone');
                     }
 
-                    // Random trees
-                    if(Math.random() < CONFIG.TREE_DENSITY && height > 0) {
-                        generateTree(x, height+1, z, materials, blockGeometry);
+                    // Random trees (optimized generation)
+                    if(Math.random() < CONFIG.TREE_DENSITY && height > 0 && x % 3 === 0 && z % 3 === 0) {
+                        generateTree(x, height+1, z);
                     }
                 }
             }
         }
 
-        // Tree Generator
-        function generateTree(x, y, z, materials, geometry) {
+        // Optimized Tree Generator
+        function generateTree(x, y, z) {
             // Trunk
             for(let i = 0; i < 5; i++) {
-                addBlock(x, y+i, z, 'wood', materials.wood, geometry);
+                addBlock(x, y+i, z, 'wood');
             }
             
-            // Leaves
-            for(let lx = -2; lx <= 2; lx++) {
-                for(let lz = -2; lz <= 2; lz++) {
-                    for(let ly = 3; ly <= 6; ly++) {
-                        // Skip corners for better looking trees
-                        if(Math.abs(lx) === 2 && Math.abs(lz) === 2 && Math.random() > 0.5) continue;
-                        addBlock(x+lx, y+ly, z+lz, 'leaves', materials.leaves, geometry);
+            // Leaves - optimized pattern
+            for(let ly = 3; ly <= 5; ly++) {
+                const radius = ly === 5 ? 1 : 2;
+                for(let lx = -radius; lx <= radius; lx++) {
+                    for(let lz = -radius; lz <= radius; lz++) {
+                        if(ly === 5 && (lx === 0 || lz === 0)) continue;
+                        addBlock(x+lx, y+ly, z+lz, 'leaves');
                     }
                 }
             }
         }
 
-        // Block Management
-        function addBlock(x, y, z, type, material, geometry) {
+        // Optimized Block Management with Chunk System
+        function addBlock(x, y, z, type) {
             const key = `${x},${y},${z}`;
             if(world.has(key)) return;
 
-            const block = new THREE.Mesh(geometry, material);
+            // Get chunk coordinates
+            const chunkX = Math.floor(x / CONFIG.CHUNK_SIZE);
+            const chunkZ = Math.floor(z / CONFIG.CHUNK_SIZE);
+            const chunkKey = `${chunkX},${chunkZ}`;
+            
+            // Create chunk if it doesn't exist
+            if(!chunks.has(chunkKey)) {
+                const chunkGroup = new THREE.Group();
+                scene.add(chunkGroup);
+                chunks.set(chunkKey, chunkGroup);
+            }
+            
+            const chunk = chunks.get(chunkKey);
+            const block = new THREE.Mesh(blockGeometry, materials[type]);
             block.position.set(x, y, z);
             block.userData = { type };
-            scene.add(block);
+            chunk.add(block);
             world.set(key, block);
         }
 
-        // Improved Player Movement with Collision
+        function removeBlock(x, y, z) {
+            const key = `${x},${y},${z}`;
+            if(!world.has(key)) return;
+
+            const block = world.get(key);
+            block.parent.remove(block);
+            world.delete(key);
+        }
+
+        // Optimized Player Movement with Improved Collision
         function updatePlayer(deltaTime) {
             const forward = new THREE.Vector3(
                 Math.sin(player.yaw),
@@ -226,18 +258,53 @@
             // Update camera
             camera.position.copy(player.position);
             camera.rotation.set(player.pitch, player.yaw, 0, 'YXZ');
+
+            // Update chunk visibility based on player position
+            updateChunkVisibility();
         }
 
-        // Precise Collision Detection
+        // Optimized Chunk Visibility
+        function updateChunkVisibility() {
+            const playerChunkX = Math.floor(player.position.x / CONFIG.CHUNK_SIZE);
+            const playerChunkZ = Math.floor(player.position.z / CONFIG.CHUNK_SIZE);
+            
+            chunks.forEach((chunk, key) => {
+                const [chunkX, chunkZ] = key.split(',').map(Number);
+                const distance = Math.sqrt(
+                    Math.pow(chunkX - playerChunkX, 2) + 
+                    Math.pow(chunkZ - playerChunkZ, 2)
+                );
+                
+                chunk.visible = distance <= (CONFIG.RENDER_DISTANCE / CONFIG.CHUNK_SIZE);
+            });
+        }
+
+        // Optimized Collision Detection
         function checkCollision(position) {
             const playerBox = new THREE.Box3(
                 new THREE.Vector3().copy(position).sub(new THREE.Vector3(0.3, 0, 0.3)),
                 new THREE.Vector3().copy(position).add(new THREE.Vector3(0.3, CONFIG.PLAYER_HEIGHT, 0.3))
             );
 
-            for(const block of world.values()) {
-                const blockBox = new THREE.Box3().setFromObject(block);
-                if(playerBox.intersectsBox(blockBox)) return true;
+            // Only check nearby blocks for collision
+            const minX = Math.floor(position.x - 1);
+            const maxX = Math.ceil(position.x + 1);
+            const minY = Math.floor(position.y - 1);
+            const maxY = Math.ceil(position.y + CONFIG.PLAYER_HEIGHT + 1);
+            const minZ = Math.floor(position.z - 1);
+            const maxZ = Math.ceil(position.z + 1);
+
+            for(let x = minX; x <= maxX; x++) {
+                for(let y = minY; y <= maxY; y++) {
+                    for(let z = minZ; z <= maxZ; z++) {
+                        const key = `${x},${y},${z}`;
+                        if(world.has(key)) {
+                            const block = world.get(key);
+                            const blockBox = new THREE.Box3().setFromObject(block);
+                            if(playerBox.intersectsBox(blockBox)) return true;
+                        }
+                    }
+                }
             }
             return false;
         }
@@ -276,7 +343,15 @@
             });
         }
 
-        // Block Interaction
+        function setupMenuButtons() {
+            document.getElementById('saveBtn').addEventListener('click', saveGameToFile);
+            document.getElementById('loadBtn').addEventListener('click', () => {
+                document.getElementById('fileInput').click();
+            });
+            
+            document.getElementById('fileInput').addEventListener('change', loadGameFromFile);
+        }
+
         function handleBlockInteraction() {
             raycaster.setFromCamera(new THREE.Vector2(), camera);
             const intersects = raycaster.intersectObjects([...world.values()]);
@@ -285,12 +360,9 @@
                 const block = intersects[0].object;
                 const type = document.getElementById('blockType').value;
                 
-                // Left click - break block
-                if(event.button === 0) {
+                if(event.button === 0) { // Left click - break block
                     removeBlock(block.position.x, block.position.y, block.position.z);
-                } 
-                // Right click - place block
-                else if(event.button === 2) {
+                } else if(event.button === 2) { // Right click - place block
                     const faceNormal = intersects[0].face.normal;
                     const pos = block.position.clone().add(faceNormal);
                     addBlock(pos.x, pos.y, pos.z, type);
@@ -298,10 +370,91 @@
             }
         }
 
-        // Game Loop
-        function animate() {
+        function toggleOptions() {
+            const menu = document.getElementById('optionsMenu');
+            menu.style.display = menu.style.display === 'flex' ? 'none' : 'flex';
+        }
+
+        function closeOptions() {
+            document.getElementById('optionsMenu').style.display = 'none';
+        }
+
+        function saveGameToFile() {
+            const data = {
+                player: {
+                    position: player.position.toArray(),
+                    yaw: player.yaw,
+                    pitch: player.pitch
+                },
+                world: Array.from(world.entries()).map(([key, block]) => ({
+                    key,
+                    type: block.userData.type,
+                    position: block.position.toArray()
+                }))
+            };
+            
+            const compressed = LZString.compress(JSON.stringify(data));
+            const blob = new Blob([compressed], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `gaycraft_save_${new Date().toISOString().slice(0,10)}.gaycraft`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            
+            alert('Game saved to file!');
+        }
+
+        function loadGameFromFile(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const compressed = e.target.result;
+                    const data = JSON.parse(LZString.decompress(compressed));
+                    
+                    // Clear existing world
+                    world.forEach(block => {
+                        if(block.parent) block.parent.remove(block);
+                    });
+                    world.clear();
+                    chunks.clear();
+                    
+                    // Load player state
+                    player.position.fromArray(data.player.position);
+                    player.yaw = data.player.yaw;
+                    player.pitch = data.player.pitch;
+                    
+                    // Load world
+                    data.world.forEach(blockData => {
+                        const pos = new THREE.Vector3().fromArray(blockData.position);
+                        addBlock(pos.x, pos.y, pos.z, blockData.type);
+                    });
+                    
+                    alert('Game loaded from file!');
+                } catch(e) {
+                    console.error('Load error:', e);
+                    alert('Failed to load game file!');
+                }
+            };
+            reader.readAsText(file);
+        }
+
+        // Optimized Game Loop
+        let lastTime = 0;
+        function animate(time) {
             requestAnimationFrame(animate);
-            updatePlayer(0.016); // Fixed delta time
+            
+            // Calculate delta time for smooth movement
+            const deltaTime = Math.min(0.1, (time - lastTime) / 1000);
+            lastTime = time;
+            
+            updatePlayer(deltaTime);
             renderer.render(scene, camera);
         }
 
