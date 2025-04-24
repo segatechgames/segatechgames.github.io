@@ -102,7 +102,7 @@
         let chunks = new Map();
         let activeChunks = new Set();
         let materials = {};
-        let blockGeometry = new THREE.BoxGeometry(1, 1, 1);
+        let blockGeometry;
         let player = { 
             position: new THREE.Vector3(0, 70, 0),
             velocity: new THREE.Vector3(),
@@ -111,55 +111,27 @@
             onGround: false
         };
         let keys = {};
-        let raycaster = new THREE.Raycaster();
+        let raycaster;
         let loading = true;
         let chunksToGenerate = [];
-        let perlin = createPerlinNoise();
+        let perlin;
 
-        // Initialize Game
+        // Initialize Game when Start button is clicked
+        document.getElementById('startButton').addEventListener('click', function() {
+            this.disabled = true;
+            initGame();
+        });
+
+        // Main Game Initialization
         function initGame() {
             try {
-                // Scene Setup
-                scene = new THREE.Scene();
-                scene.background = new THREE.Color(0x87ceeb);
+                // Initialize Three.js components
+                initThreeJS();
                 
-                // Camera Setup
-                camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+                // Initialize game systems
+                initGameSystems();
                 
-                // Renderer Setup
-                renderer = new THREE.WebGLRenderer({ 
-                    antialias: true,
-                    powerPreference: "high-performance"
-                });
-                renderer.setPixelRatio(window.devicePixelRatio);
-                renderer.setSize(window.innerWidth, window.innerHeight);
-                document.body.appendChild(renderer.domElement);
-
-                // Materials
-                materials = {
-                    grass: new THREE.MeshLambertMaterial({ color: 0x55aa44 }),
-                    stone: new THREE.MeshLambertMaterial({ color: 0x999999 }),
-                    dirt: new THREE.MeshLambertMaterial({ color: 0x886633 }),
-                    sand: new THREE.MeshLambertMaterial({ color: 0xffdd99 }),
-                    wood: new THREE.MeshLambertMaterial({ color: 0x774411 }),
-                    leaves: new THREE.MeshLambertMaterial({ color: 0x33aa33, transparent: true, opacity: 0.8 })
-                };
-
-                // Lighting
-                scene.add(new THREE.AmbientLight(0xffffff, 0.6));
-                const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-                directionalLight.position.set(100, 100, 50);
-                scene.add(directionalLight);
-
-                // Setup player position properly
-                findSpawnPosition();
-                camera.position.copy(player.position);
-                
-                // Setup controls and UI
-                setupEventListeners();
-                setupMenuButtons();
-                
-                // Start loading initial chunks
+                // Start loading the world
                 startLoading();
 
             } catch (error) {
@@ -168,8 +140,61 @@
             }
         }
 
-        function createPerlinNoise() {
-            return {
+        function initThreeJS() {
+            // Scene Setup
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x87ceeb);
+            
+            // Camera Setup
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+            
+            // Renderer Setup
+            renderer = new THREE.WebGLRenderer({ 
+                antialias: true,
+                powerPreference: "high-performance"
+            });
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+
+            // Block Geometry
+            blockGeometry = new THREE.BoxGeometry(1, 1, 1);
+            
+            // Raycaster
+            raycaster = new THREE.Raycaster();
+        }
+
+        function initGameSystems() {
+            // Materials
+            materials = {
+                grass: new THREE.MeshLambertMaterial({ color: 0x55aa44 }),
+                stone: new THREE.MeshLambertMaterial({ color: 0x999999 }),
+                dirt: new THREE.MeshLambertMaterial({ color: 0x886633 }),
+                sand: new THREE.MeshLambertMaterial({ color: 0xffdd99 }),
+                wood: new THREE.MeshLambertMaterial({ color: 0x774411 }),
+                leaves: new THREE.MeshLambertMaterial({ color: 0x33aa33, transparent: true, opacity: 0.8 })
+            };
+
+            // Lighting
+            scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(100, 100, 50);
+            scene.add(directionalLight);
+
+            // Initialize Perlin noise
+            initPerlinNoise();
+
+            // Setup player position properly
+            findSpawnPosition();
+            camera.position.copy(player.position);
+            
+            // Setup controls and UI
+            setupEventListeners();
+            setupMenuButtons();
+        }
+
+        function initPerlinNoise() {
+            perlin = {
                 rand_vect: function() {
                     const theta = Math.random() * 2 * Math.PI;
                     return {x: Math.cos(theta), y: Math.sin(theta)};
@@ -229,29 +254,31 @@
             let loaded = 0;
             
             const loadingInterval = setInterval(() => {
-                generateNextChunk();
-                loaded++;
-                
-                // Update progress bar
-                const progress = Math.min(100, Math.floor((loaded / totalChunks) * 100));
-                document.getElementById('loadingBar').style.width = `${progress}%`;
-                
-                if (loaded >= totalChunks) {
-                    clearInterval(loadingInterval);
-                    setTimeout(() => {
-                        document.getElementById('loadingScreen').style.display = 'none';
-                        loading = false;
-                        animate();
-                    }, 500);
+                if (generateNextChunk()) {
+                    loaded++;
+                    
+                    // Update progress bar
+                    const progress = Math.min(100, Math.floor((loaded / totalChunks) * 100));
+                    document.getElementById('loadingBar').style.width = `${progress}%`;
+                    
+                    if (loaded >= totalChunks) {
+                        clearInterval(loadingInterval);
+                        setTimeout(() => {
+                            document.getElementById('loadingScreen').style.display = 'none';
+                            loading = false;
+                            animate();
+                        }, 500);
+                    }
                 }
             }, 50);
         }
 
         function generateNextChunk() {
-            if (chunksToGenerate.length === 0) return;
+            if (chunksToGenerate.length === 0) return false;
             
             const chunkKey = chunksToGenerate.shift();
             generateChunk(chunkKey);
+            return true;
         }
 
         // World Generation
@@ -496,11 +523,6 @@
                 camera.aspect = window.innerWidth / window.innerHeight;
                 camera.updateProjectionMatrix();
                 renderer.setSize(window.innerWidth, window.innerHeight);
-            });
-
-            document.getElementById('startButton').addEventListener('click', function() {
-                this.disabled = true;
-                initGame();
             });
         }
 
