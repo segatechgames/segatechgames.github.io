@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GayCraft 2.2.0</title>
+    <title>GayCraft 2.0.0</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { overflow: hidden; font-family: 'Arial', sans-serif; }
@@ -23,9 +23,39 @@
         button:hover { background: #666; }
         select { padding: 0.25rem; background: #333; color: white; border: none; border-radius: 3px; }
         #fileInput { display: none; }
+        #loadingScreen { position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
+            background-color: #886633; display: flex; flex-direction: column; 
+            justify-content: center; align-items: center; z-index: 2000; }
+        #loadingProgress { width: 300px; height: 20px; background: #333; margin-top: 20px; }
+        #loadingBar { height: 100%; width: 0%; background: #55aa44; }
+        #welcomePopup { background: rgba(0,0,0,0.8); color: white; padding: 2rem; 
+            border-radius: 8px; max-width: 500px; text-align: center; }
+        #welcomePopup h2 { margin-bottom: 1rem; }
+        #welcomePopup ul { text-align: left; margin: 1rem 0; }
+        #startButton { margin-top: 1rem; padding: 0.75rem 1.5rem; font-size: 1.2rem; }
     </style>
 </head>
 <body>
+    <div id="loadingScreen">
+        <div id="welcomePopup">
+            <h2>Welcome to GayCraft 2.0!</h2>
+            <p>Controls:</p>
+            <ul>
+                <li><strong>WASD</strong> - Move forward/left/back/right</li>
+                <li><strong>Space</strong> - Jump</li>
+                <li><strong>Mouse</strong> - Look around</li>
+                <li><strong>Left Click</strong> - Break block</li>
+                <li><strong>Right Click</strong> - Place block</li>
+                <li><strong>M</strong> - Open menu</li>
+            </ul>
+            <p>The world will generate around you as you explore!</p>
+            <button id="startButton">Start Game</button>
+        </div>
+        <div id="loadingProgress">
+            <div id="loadingBar"></div>
+        </div>
+    </div>
+
     <div id="ui">
         <div id="blockPicker">
             Block: <select id="blockType">
@@ -52,36 +82,41 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.4.4/lz-string.min.js"></script>
 
     <script>
-        // Optimized Configuration
+        // Game Configuration
         const CONFIG = {
-            WORLD_SIZE: 64,
+            CHUNK_SIZE: 16,
+            RENDER_DISTANCE: 6,
             PLAYER_HEIGHT: 1.8,
             MOVEMENT_SPEED: 0.15,
             JUMP_FORCE: 0.35,
             GRAVITY: 0.02,
             MOUSE_SENSITIVITY: 0.002,
             TREE_DENSITY: 0.02,
-            RENDER_DISTANCE: 32,
-            CHUNK_SIZE: 16
+            WORLD_HEIGHT: 64,
+            SEED: Math.floor(Math.random() * 999999)
         };
 
-        // Core Game State
-        let scene, camera, renderer, world = new Map();
+        // Game State
+        let scene, camera, renderer;
+        let world = new Map();
         let chunks = new Map();
+        let activeChunks = new Set();
+        let materials = {};
+        let blockGeometry = new THREE.BoxGeometry(1, 1, 1);
         let player = { 
-            position: new THREE.Vector3(0, 32, 0),
+            position: new THREE.Vector3(0, 70, 0),
             velocity: new THREE.Vector3(),
             yaw: 0,
             pitch: 0,
-            onGround: false,
-            inventory: {}
+            onGround: false
         };
-        let keys = {}, mouseDelta = new THREE.Vector2(), raycaster = new THREE.Raycaster();
-        let materials = {};
-        let blockGeometry = new THREE.BoxGeometry(1, 1, 1);
+        let keys = {};
+        let raycaster = new THREE.Raycaster();
+        let loading = true;
+        let chunksToGenerate = [];
 
         // Initialize Game
-        function init() {
+        function initGame() {
             try {
                 // Scene Setup
                 scene = new THREE.Scene();
@@ -89,9 +124,8 @@
                 
                 // Camera Setup
                 camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
-                camera.position.copy(player.position);
                 
-                // Renderer Setup with performance hints
+                // Renderer Setup
                 renderer = new THREE.WebGLRenderer({ 
                     antialias: true,
                     powerPreference: "high-performance"
@@ -100,7 +134,7 @@
                 renderer.setSize(window.innerWidth, window.innerHeight);
                 document.body.appendChild(renderer.domElement);
 
-                // Preload materials
+                // Materials
                 materials = {
                     grass: new THREE.MeshLambertMaterial({ color: 0x55aa44 }),
                     stone: new THREE.MeshLambertMaterial({ color: 0x999999 }),
@@ -110,17 +144,22 @@
                     leaves: new THREE.MeshLambertMaterial({ color: 0x33aa33, transparent: true, opacity: 0.8 })
                 };
 
-                // Optimized Lighting
+                // Lighting
                 scene.add(new THREE.AmbientLight(0xffffff, 0.6));
                 const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
                 directionalLight.position.set(100, 100, 50);
                 scene.add(directionalLight);
 
-                // Generate Optimized World
-                generateOptimizedWorld();
+                // Setup player position properly
+                findSpawnPosition();
+                camera.position.copy(player.position);
+                
+                // Setup controls and UI
                 setupEventListeners();
                 setupMenuButtons();
-                animate();
+                
+                // Start loading initial chunks
+                startLoading();
 
             } catch (error) {
                 console.error("Initialization error:", error);
@@ -128,110 +167,193 @@
             }
         }
 
-        // Optimized World Generation with Chunk System
-        function generateOptimizedWorld() {
-            // Generate terrain with height variation
-            for(let x = -CONFIG.WORLD_SIZE; x <= CONFIG.WORLD_SIZE; x++) {
-                for(let z = -CONFIG.WORLD_SIZE; z <= CONFIG.WORLD_SIZE; z++) {
-                    // Create height variation
-                    const height = Math.floor(Math.sin(x/10) * Math.cos(z/10) * 3) + 5;
+        function findSpawnPosition() {
+            // Find a suitable spawn position above ground
+            for (let x = 0; x < 16; x++) {
+                for (let z = 0; z < 16; z++) {
+                    const height = getTerrainHeight(x, z);
+                    if (height > 60) {
+                        player.position.set(x, height + 2, z);
+                        return;
+                    }
+                }
+            }
+        }
+
+        function startLoading() {
+            // Initial chunk loading
+            updateChunks();
+            
+            // Start loading animation
+            const totalChunks = Math.pow(CONFIG.RENDER_DISTANCE * 2 + 1, 2);
+            let loaded = 0;
+            
+            const loadingInterval = setInterval(() => {
+                generateNextChunk();
+                loaded++;
+                
+                // Update progress bar
+                const progress = Math.min(100, Math.floor((loaded / totalChunks) * 100));
+                document.getElementById('loadingBar').style.width = `${progress}%`;
+                
+                if (loaded >= totalChunks) {
+                    clearInterval(loadingInterval);
+                    setTimeout(() => {
+                        document.getElementById('loadingScreen').style.display = 'none';
+                        loading = false;
+                        animate();
+                    }, 500);
+                }
+            }, 50);
+        }
+
+        function generateNextChunk() {
+            if (chunksToGenerate.length === 0) return;
+            
+            const chunkKey = chunksToGenerate.shift();
+            generateChunk(chunkKey);
+        }
+
+        // World Generation
+        function getTerrainHeight(x, z) {
+            // Simple noise-based terrain
+            const scale = 0.1;
+            const heightScale = 20;
+            const baseHeight = 60;
+            
+            const noise = Math.abs(perlin.get((x + CONFIG.SEED) * scale, (z + CONFIG.SEED) * scale));
+            return Math.floor(baseHeight + noise * heightScale);
+        }
+
+        function generateChunk(chunkKey) {
+            if (chunks.has(chunkKey)) return;
+            
+            const [chunkX, chunkZ] = chunkKey.split(',').map(Number);
+            const chunkGroup = new THREE.Group();
+            scene.add(chunkGroup);
+            chunks.set(chunkKey, chunkGroup);
+            
+            // Generate terrain for this chunk
+            for (let x = chunkX * CONFIG.CHUNK_SIZE; x < (chunkX + 1) * CONFIG.CHUNK_SIZE; x++) {
+                for (let z = chunkZ * CONFIG.CHUNK_SIZE; z < (chunkZ + 1) * CONFIG.CHUNK_SIZE; z++) {
+                    const height = getTerrainHeight(x, z);
                     
                     // Ground layers
-                    addBlock(x, height, z, 'grass');
-                    addBlock(x, height-1, z, 'dirt');
-                    for(let y = height-2; y >= height-4; y--) {
-                        addBlock(x, y, z, 'dirt');
+                    addBlock(x, height, z, 'grass', chunkGroup);
+                    addBlock(x, height-1, z, 'dirt', chunkGroup);
+                    for (let y = height-2; y >= height-4; y--) {
+                        addBlock(x, y, z, 'dirt', chunkGroup);
                     }
-                    for(let y = height-5; y >= -5; y--) {
-                        addBlock(x, y, z, 'stone');
+                    for (let y = height-5; y >= 0; y--) {
+                        addBlock(x, y, z, 'stone', chunkGroup);
                     }
 
-                    // Random trees (optimized generation)
-                    if(Math.random() < CONFIG.TREE_DENSITY && height > 0 && x % 3 === 0 && z % 3 === 0) {
-                        generateTree(x, height+1, z);
+                    // Random trees
+                    if (height > 60 && Math.random() < CONFIG.TREE_DENSITY && x % 3 === 0 && z % 3 === 0) {
+                        generateTree(x, height+1, z, chunkGroup);
                     }
                 }
             }
         }
 
-        // Optimized Tree Generator
-        function generateTree(x, y, z) {
+        function generateTree(x, y, z, chunkGroup) {
             // Trunk
-            for(let i = 0; i < 5; i++) {
-                addBlock(x, y+i, z, 'wood');
+            for (let i = 0; i < 5; i++) {
+                addBlock(x, y+i, z, 'wood', chunkGroup);
             }
             
-            // Leaves - optimized pattern
-            for(let ly = 3; ly <= 5; ly++) {
+            // Leaves
+            for (let ly = 3; ly <= 5; ly++) {
                 const radius = ly === 5 ? 1 : 2;
-                for(let lx = -radius; lx <= radius; lx++) {
-                    for(let lz = -radius; lz <= radius; lz++) {
-                        if(ly === 5 && (lx === 0 || lz === 0)) continue;
-                        addBlock(x+lx, y+ly, z+lz, 'leaves');
+                for (let lx = -radius; lx <= radius; lx++) {
+                    for (let lz = -radius; lz <= radius; lz++) {
+                        if (ly === 5 && (lx === 0 || lz === 0)) continue;
+                        addBlock(x+lx, y+ly, z+lz, 'leaves', chunkGroup);
                     }
                 }
             }
         }
 
-        // Optimized Block Management with Chunk System
-        function addBlock(x, y, z, type) {
+        function addBlock(x, y, z, type, chunkGroup) {
             const key = `${x},${y},${z}`;
-            if(world.has(key)) return;
-
-            // Get chunk coordinates
-            const chunkX = Math.floor(x / CONFIG.CHUNK_SIZE);
-            const chunkZ = Math.floor(z / CONFIG.CHUNK_SIZE);
-            const chunkKey = `${chunkX},${chunkZ}`;
+            if (world.has(key)) return;
             
-            // Create chunk if it doesn't exist
-            if(!chunks.has(chunkKey)) {
-                const chunkGroup = new THREE.Group();
-                scene.add(chunkGroup);
-                chunks.set(chunkKey, chunkGroup);
-            }
-            
-            const chunk = chunks.get(chunkKey);
             const block = new THREE.Mesh(blockGeometry, materials[type]);
             block.position.set(x, y, z);
             block.userData = { type };
-            chunk.add(block);
+            chunkGroup.add(block);
             world.set(key, block);
         }
 
         function removeBlock(x, y, z) {
             const key = `${x},${y},${z}`;
-            if(!world.has(key)) return;
-
+            if (!world.has(key)) return;
+            
             const block = world.get(key);
             block.parent.remove(block);
             world.delete(key);
         }
 
-        // Optimized Player Movement with Improved Collision
+        // Chunk Management
+        function updateChunks() {
+            const playerChunkX = Math.floor(player.position.x / CONFIG.CHUNK_SIZE);
+            const playerChunkZ = Math.floor(player.position.z / CONFIG.CHUNK_SIZE);
+            
+            // Determine which chunks should be active
+            const newActiveChunks = new Set();
+            chunksToGenerate = [];
+            
+            for (let x = playerChunkX - CONFIG.RENDER_DISTANCE; x <= playerChunkX + CONFIG.RENDER_DISTANCE; x++) {
+                for (let z = playerChunkZ - CONFIG.RENDER_DISTANCE; z <= playerChunkZ + CONFIG.RENDER_DISTANCE; z++) {
+                    const chunkKey = `${x},${z}`;
+                    newActiveChunks.add(chunkKey);
+                    
+                    if (!chunks.has(chunkKey)) {
+                        chunksToGenerate.push(chunkKey);
+                    }
+                }
+            }
+            
+            // Unload distant chunks
+            activeChunks.forEach(chunkKey => {
+                if (!newActiveChunks.has(chunkKey)) {
+                    const chunk = chunks.get(chunkKey);
+                    if (chunk) {
+                        scene.remove(chunk);
+                        chunks.delete(chunkKey);
+                    }
+                }
+            });
+            
+            activeChunks = newActiveChunks;
+        }
+
+        // Player Movement
         function updatePlayer(deltaTime) {
+            // Fixed controls (no longer backwards)
             const forward = new THREE.Vector3(
-                Math.sin(player.yaw),
+                -Math.sin(player.yaw),
                 0,
-                Math.cos(player.yaw)
+                -Math.cos(player.yaw)
             );
             const right = new THREE.Vector3(
-                Math.sin(player.yaw + Math.PI/2),
+                -Math.cos(player.yaw),
                 0,
-                Math.cos(player.yaw + Math.PI/2)
+                Math.sin(player.yaw)
             );
 
             // Movement
             const move = new THREE.Vector3();
-            if(keys.w) move.add(forward);
-            if(keys.s) move.sub(forward);
-            if(keys.a) move.sub(right);
-            if(keys.d) move.add(right);
+            if (keys.w) move.add(forward);
+            if (keys.s) move.sub(forward);
+            if (keys.a) move.sub(right);
+            if (keys.d) move.add(right);
 
             move.normalize().multiplyScalar(CONFIG.MOVEMENT_SPEED);
             
             // Check horizontal collisions
             const testPos = player.position.clone().add(new THREE.Vector3(move.x, 0, move.z));
-            if(!checkCollision(testPos)) {
+            if (!checkCollision(testPos)) {
                 player.position.x = testPos.x;
                 player.position.z = testPos.z;
             }
@@ -241,7 +363,7 @@
             const verticalTest = player.position.clone().add(new THREE.Vector3(0, player.velocity.y, 0));
             
             // Check vertical collisions
-            if(!checkCollision(verticalTest)) {
+            if (!checkCollision(verticalTest)) {
                 player.position.y = verticalTest.y;
                 player.onGround = false;
             } else {
@@ -250,7 +372,7 @@
             }
 
             // Jumping
-            if(keys[' '] && player.onGround) {
+            if (keys[' '] && player.onGround) {
                 player.velocity.y = CONFIG.JUMP_FORCE;
                 player.onGround = false;
             }
@@ -258,35 +380,29 @@
             // Update camera
             camera.position.copy(player.position);
             camera.rotation.set(player.pitch, player.yaw, 0, 'YXZ');
-
-            // Update chunk visibility based on player position
-            updateChunkVisibility();
-        }
-
-        // Optimized Chunk Visibility
-        function updateChunkVisibility() {
+            
+            // Update chunks if needed
             const playerChunkX = Math.floor(player.position.x / CONFIG.CHUNK_SIZE);
             const playerChunkZ = Math.floor(player.position.z / CONFIG.CHUNK_SIZE);
+            const playerChunkKey = `${playerChunkX},${playerChunkZ}`;
             
-            chunks.forEach((chunk, key) => {
-                const [chunkX, chunkZ] = key.split(',').map(Number);
-                const distance = Math.sqrt(
-                    Math.pow(chunkX - playerChunkX, 2) + 
-                    Math.pow(chunkZ - playerChunkZ, 2)
-                );
-                
-                chunk.visible = distance <= (CONFIG.RENDER_DISTANCE / CONFIG.CHUNK_SIZE);
-            });
+            if (!activeChunks.has(playerChunkKey)) {
+                updateChunks();
+            }
+            
+            // Generate chunks in background
+            if (chunksToGenerate.length > 0 && !loading) {
+                generateNextChunk();
+            }
         }
 
-        // Optimized Collision Detection
         function checkCollision(position) {
             const playerBox = new THREE.Box3(
                 new THREE.Vector3().copy(position).sub(new THREE.Vector3(0.3, 0, 0.3)),
                 new THREE.Vector3().copy(position).add(new THREE.Vector3(0.3, CONFIG.PLAYER_HEIGHT, 0.3))
             );
 
-            // Only check nearby blocks for collision
+            // Only check nearby blocks
             const minX = Math.floor(position.x - 1);
             const maxX = Math.ceil(position.x + 1);
             const minY = Math.floor(position.y - 1);
@@ -294,14 +410,14 @@
             const minZ = Math.floor(position.z - 1);
             const maxZ = Math.ceil(position.z + 1);
 
-            for(let x = minX; x <= maxX; x++) {
-                for(let y = minY; y <= maxY; y++) {
-                    for(let z = minZ; z <= maxZ; z++) {
+            for (let x = minX; x <= maxX; x++) {
+                for (let y = minY; y <= maxY; y++) {
+                    for (let z = minZ; z <= maxZ; z++) {
                         const key = `${x},${y},${z}`;
-                        if(world.has(key)) {
+                        if (world.has(key)) {
                             const block = world.get(key);
                             const blockBox = new THREE.Box3().setFromObject(block);
-                            if(playerBox.intersectsBox(blockBox)) return true;
+                            if (playerBox.intersectsBox(blockBox)) return true;
                         }
                     }
                 }
@@ -313,7 +429,7 @@
         function setupEventListeners() {
             document.addEventListener('keydown', e => {
                 keys[e.key.toLowerCase()] = true;
-                if(e.key === 'Escape') toggleOptions();
+                if (e.key === 'm') toggleOptions();
             });
             
             document.addEventListener('keyup', e => {
@@ -321,7 +437,7 @@
             });
             
             document.addEventListener('click', () => {
-                if(!document.pointerLockElement) {
+                if (!document.pointerLockElement) {
                     document.body.requestPointerLock();
                 } else {
                     handleBlockInteraction();
@@ -329,7 +445,7 @@
             });
 
             document.addEventListener('mousemove', e => {
-                if(document.pointerLockElement === document.body) {
+                if (document.pointerLockElement === document.body) {
                     player.yaw -= e.movementX * CONFIG.MOUSE_SENSITIVITY;
                     player.pitch -= e.movementY * CONFIG.MOUSE_SENSITIVITY;
                     player.pitch = Math.max(-Math.PI/2, Math.min(Math.PI/2, player.pitch));
@@ -341,6 +457,8 @@
                 camera.updateProjectionMatrix();
                 renderer.setSize(window.innerWidth, window.innerHeight);
             });
+
+            document.getElementById('startButton').addEventListener('click', initGame);
         }
 
         function setupMenuButtons() {
@@ -356,16 +474,24 @@
             raycaster.setFromCamera(new THREE.Vector2(), camera);
             const intersects = raycaster.intersectObjects([...world.values()]);
             
-            if(intersects.length > 0) {
+            if (intersects.length > 0) {
                 const block = intersects[0].object;
                 const type = document.getElementById('blockType').value;
                 
-                if(event.button === 0) { // Left click - break block
+                if (event.button === 0) { // Left click - break block
                     removeBlock(block.position.x, block.position.y, block.position.z);
-                } else if(event.button === 2) { // Right click - place block
+                } else if (event.button === 2) { // Right click - place block
                     const faceNormal = intersects[0].face.normal;
                     const pos = block.position.clone().add(faceNormal);
-                    addBlock(pos.x, pos.y, pos.z, type);
+                    
+                    // Find which chunk this should go in
+                    const chunkX = Math.floor(pos.x / CONFIG.CHUNK_SIZE);
+                    const chunkZ = Math.floor(pos.z / CONFIG.CHUNK_SIZE);
+                    const chunkKey = `${chunkX},${chunkZ}`;
+                    
+                    if (chunks.has(chunkKey)) {
+                        addBlock(pos.x, pos.y, pos.z, type, chunks.get(chunkKey));
+                    }
                 }
             }
         }
@@ -390,7 +516,8 @@
                     key,
                     type: block.userData.type,
                     position: block.position.toArray()
-                }))
+                })),
+                seed: CONFIG.SEED
             };
             
             const compressed = LZString.compress(JSON.stringify(data));
@@ -420,21 +547,25 @@
                     
                     // Clear existing world
                     world.forEach(block => {
-                        if(block.parent) block.parent.remove(block);
+                        if (block.parent) block.parent.remove(block);
                     });
                     world.clear();
                     chunks.clear();
+                    activeChunks.clear();
+                    
+                    // Set seed
+                    CONFIG.SEED = data.seed || Math.floor(Math.random() * 999999);
                     
                     // Load player state
                     player.position.fromArray(data.player.position);
                     player.yaw = data.player.yaw;
                     player.pitch = data.player.pitch;
                     
-                    // Load world
-                    data.world.forEach(blockData => {
-                        const pos = new THREE.Vector3().fromArray(blockData.position);
-                        addBlock(pos.x, pos.y, pos.z, blockData.type);
-                    });
+                    // Update camera
+                    camera.position.copy(player.position);
+                    
+                    // Regenerate world around player
+                    updateChunks();
                     
                     alert('Game loaded from file!');
                 } catch(e) {
@@ -445,21 +576,53 @@
             reader.readAsText(file);
         }
 
-        // Optimized Game Loop
-        let lastTime = 0;
-        function animate(time) {
+        // Simple Perlin noise implementation for terrain generation
+        const perlin = {
+            rand_vect: function() {
+                const theta = Math.random() * 2 * Math.PI;
+                return {x: Math.cos(theta), y: Math.sin(theta)};
+            },
+            dot_prod_grid: function(x, y, vx, vy) {
+                let g_vect;
+                const d_vect = {x: x - vx, y: y - vy};
+                if (this.gradients[[vx,vy]]) {
+                    g_vect = this.gradients[[vx,vy]];
+                } else {
+                    g_vect = this.rand_vect();
+                    this.gradients[[vx, vy]] = g_vect;
+                }
+                return d_vect.x * g_vect.x + d_vect.y * g_vect.y;
+            },
+            smootherstep: function(x) {
+                return 6*x**5 - 15*x**4 + 10*x**3;
+            },
+            interp: function(x, a, b) {
+                return a + this.smootherstep(x) * (b-a);
+            },
+            gradients: {},
+            get: function(x, y) {
+                const xf = Math.floor(x);
+                const yf = Math.floor(y);
+                // Interpolate
+                const tl = this.dot_prod_grid(x, y, xf,   yf);
+                const tr = this.dot_prod_grid(x, y, xf+1, yf);
+                const bl = this.dot_prod_grid(x, y, xf,   yf+1);
+                const br = this.dot_prod_grid(x, y, xf+1, yf+1);
+                const xt = this.interp(x-xf, tl, tr);
+                const xb = this.interp(x-xf, bl, br);
+                return this.interp(y-yf, xt, xb);
+            }
+        };
+
+        // Game Loop
+        function animate() {
             requestAnimationFrame(animate);
             
-            // Calculate delta time for smooth movement
-            const deltaTime = Math.min(0.1, (time - lastTime) / 1000);
-            lastTime = time;
-            
-            updatePlayer(deltaTime);
-            renderer.render(scene, camera);
+            if (!loading) {
+                updatePlayer(0.016); // Fixed delta time
+                renderer.render(scene, camera);
+            }
         }
-
-        // Start the game
-        init();
     </script>
 </body>
 </html>
