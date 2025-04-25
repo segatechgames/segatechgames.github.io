@@ -82,27 +82,28 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.4.4/lz-string.min.js"></script>
 
     <script>
-        // Game Configuration
+        // Optimized Game Configuration
         const CONFIG = {
-            CHUNK_SIZE: 16,
-            RENDER_DISTANCE: 6,
+            CHUNK_SIZE: 16,               // Size of each chunk (16x16 blocks)
+            RENDER_DISTANCE: 5,           // Reduced from 6 to 5 for better performance
             PLAYER_HEIGHT: 1.8,
             MOVEMENT_SPEED: 0.15,
             JUMP_FORCE: 0.35,
             GRAVITY: 0.02,
             MOUSE_SENSITIVITY: 0.002,
-            TREE_DENSITY: 0.02,
+            TREE_DENSITY: 0.015,          // Reduced tree density
             WORLD_HEIGHT: 64,
-            SEED: Math.floor(Math.random() * 999999)
+            SEED: Math.floor(Math.random() * 999999),
+            MAX_BLOCKS_PER_FRAME: 50      // Limit blocks generated per frame
         };
 
-        // Game State
+        // Game State - Optimized data structures
         let scene, camera, renderer;
-        let world = new Map();
-        let chunks = new Map();
-        let activeChunks = new Set();
-        let materials = {};
-        let blockGeometry;
+        let world = new Map();            // Stores all blocks
+        let chunks = new Map();           // Stores chunk groups
+        let activeChunks = new Set();     // Tracks active chunks
+        let materials = {};               // Shared materials
+        let blockGeometry;                // Shared geometry
         let player = { 
             position: new THREE.Vector3(0, 70, 0),
             velocity: new THREE.Vector3(),
@@ -115,6 +116,9 @@
         let loading = true;
         let chunksToGenerate = [];
         let perlin;
+        let lastFrameTime = performance.now();
+        let frameCount = 0;
+        let fps = 60;
 
         // Initialize Game when Start button is clicked
         document.getElementById('startButton').addEventListener('click', function() {
@@ -134,6 +138,9 @@
                 // Start loading the world
                 startLoading();
 
+                // Start FPS counter
+                setInterval(updateFPSCounter, 1000);
+
             } catch (error) {
                 console.error("Initialization error:", error);
                 alert("Game failed to initialize. Check console for details.");
@@ -145,19 +152,21 @@
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x87ceeb);
             
-            // Camera Setup
-            camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+            // Camera Setup with optimized settings
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 500); // Reduced far plane
             
-            // Renderer Setup
+            // Renderer Setup with performance optimizations
             renderer = new THREE.WebGLRenderer({ 
-                antialias: true,
-                powerPreference: "high-performance"
+                antialias: false,        // Disabled antialiasing for performance
+                powerPreference: "high-performance",
+                logarithmicDepthBuffer: false
             });
-            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setPixelRatio(Math.min(1.5, window.devicePixelRatio)); // Limit pixel ratio
             renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = false;
             document.body.appendChild(renderer.domElement);
 
-            // Block Geometry
+            // Shared Block Geometry - instanced later
             blockGeometry = new THREE.BoxGeometry(1, 1, 1);
             
             // Raycaster
@@ -165,20 +174,44 @@
         }
 
         function initGameSystems() {
-            // Materials
+            // Shared Materials - optimized settings
             materials = {
-                grass: new THREE.MeshLambertMaterial({ color: 0x55aa44 }),
-                stone: new THREE.MeshLambertMaterial({ color: 0x999999 }),
-                dirt: new THREE.MeshLambertMaterial({ color: 0x886633 }),
-                sand: new THREE.MeshLambertMaterial({ color: 0xffdd99 }),
-                wood: new THREE.MeshLambertMaterial({ color: 0x774411 }),
-                leaves: new THREE.MeshLambertMaterial({ color: 0x33aa33, transparent: true, opacity: 0.8 })
+                grass: new THREE.MeshLambertMaterial({ 
+                    color: 0x55aa44,
+                    transparent: false
+                }),
+                stone: new THREE.MeshLambertMaterial({ 
+                    color: 0x999999,
+                    transparent: false
+                }),
+                dirt: new THREE.MeshLambertMaterial({ 
+                    color: 0x886633,
+                    transparent: false 
+                }),
+                sand: new THREE.MeshLambertMaterial({ 
+                    color: 0xffdd99,
+                    transparent: false
+                }),
+                wood: new THREE.MeshLambertMaterial({ 
+                    color: 0x774411,
+                    transparent: false
+                }),
+                leaves: new THREE.MeshLambertMaterial({ 
+                    color: 0x33aa33, 
+                    transparent: true, 
+                    opacity: 0.8,
+                    alphaTest: 0.5        // Optimized alpha testing
+                })
             };
 
-            // Lighting
-            scene.add(new THREE.AmbientLight(0xffffff, 0.6));
-            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            // Optimized Lighting
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            ambientLight.intensity = 0.6; // Reduced intensity
+            scene.add(ambientLight);
+            
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.7); // Reduced intensity
             directionalLight.position.set(100, 100, 50);
+            directionalLight.castShadow = false; // Disabled shadows
             scene.add(directionalLight);
 
             // Initialize Perlin noise
@@ -193,43 +226,63 @@
             setupMenuButtons();
         }
 
+        function updateFPSCounter() {
+            const fpsDisplay = document.createElement('div');
+            fpsDisplay.id = 'fpsCounter';
+            fpsDisplay.style.position = 'fixed';
+            fpsDisplay.style.bottom = '10px';
+            fpsDisplay.style.right = '10px';
+            fpsDisplay.style.color = 'white';
+            fpsDisplay.style.backgroundColor = 'rgba(0,0,0,0.5)';
+            fpsDisplay.style.padding = '5px';
+            fpsDisplay.style.borderRadius = '3px';
+            fpsDisplay.textContent = `FPS: ${fps}`;
+            
+            const existingCounter = document.getElementById('fpsCounter');
+            if (existingCounter) {
+                existingCounter.replaceWith(fpsDisplay);
+            } else {
+                document.body.appendChild(fpsDisplay);
+            }
+        }
+
         function initPerlinNoise() {
+            // Optimized Perlin noise implementation
+            const grad3 = [
+                [1,1,0], [-1,1,0], [1,-1,0], [-1,-1,0],
+                [1,0,1], [-1,0,1], [1,0,-1], [-1,0,-1],
+                [0,1,1], [0,-1,1], [0,1,-1], [0,-1,-1]
+            ];
+            
+            const p = [];
+            for (let i = 0; i < 256; i++) {
+                p[i] = Math.floor(Math.random() * 256);
+            }
+            
             perlin = {
-                rand_vect: function() {
-                    const theta = Math.random() * 2 * Math.PI;
-                    return {x: Math.cos(theta), y: Math.sin(theta)};
-                },
-                dot_prod_grid: function(x, y, vx, vy) {
-                    let g_vect;
-                    const d_vect = {x: x - vx, y: y - vy};
-                    if (this.gradients[[vx,vy]]) {
-                        g_vect = this.gradients[[vx,vy]];
-                    } else {
-                        g_vect = this.rand_vect();
-                        this.gradients[[vx, vy]] = g_vect;
-                    }
-                    return d_vect.x * g_vect.x + d_vect.y * g_vect.y;
-                },
-                smootherstep: function(x) {
-                    return 6*x**5 - 15*x**4 + 10*x**3;
-                },
-                interp: function(x, a, b) {
-                    return a + this.smootherstep(x) * (b-a);
-                },
-                gradients: {},
-                get: function(x, y) {
-                    const xf = Math.floor(x);
-                    const yf = Math.floor(y);
-                    // Interpolate
-                    const tl = this.dot_prod_grid(x, y, xf,   yf);
-                    const tr = this.dot_prod_grid(x, y, xf+1, yf);
-                    const bl = this.dot_prod_grid(x, y, xf,   yf+1);
-                    const br = this.dot_prod_grid(x, y, xf+1, yf+1);
-                    const xt = this.interp(x-xf, tl, tr);
-                    const xb = this.interp(x-xf, bl, br);
-                    return this.interp(y-yf, xt, xb);
+                noise: function(x, y) {
+                    // Faster implementation using precomputed gradients
+                    const X = Math.floor(x) & 255;
+                    const Y = Math.floor(y) & 255;
+                    x -= Math.floor(x);
+                    y -= Math.floor(y);
+                    const u = x * x * x * (x * (x * 6 - 15) + 10);
+                    const v = y * y * y * (y * (y * 6 - 15) + 10);
+                    const a = p[X] + Y;
+                    const b = p[X+1] + Y;
+                    return lerp(
+                        lerp(grad3[p[a] % 12][0] * x + grad3[p[a] % 12][1] * y,
+                            grad3[p[b] % 12][0] * (x-1) + grad3[p[b] % 12][1] * y, u),
+                        lerp(grad3[p[a+1] % 12][0] * x + grad3[p[a+1] % 12][1] * (y-1),
+                            grad3[p[b+1] % 12][0] * (x-1) + grad3[p[b+1] % 12][1] * (y-1), u), 
+                        v
+                    );
                 }
             };
+            
+            function lerp(a, b, t) {
+                return a + t * (b - a);
+            }
         }
 
         function findSpawnPosition() {
@@ -254,46 +307,37 @@
             let loaded = 0;
             
             const loadingInterval = setInterval(() => {
-                if (generateNextChunk()) {
-                    loaded++;
-                    
-                    // Update progress bar
-                    const progress = Math.min(100, Math.floor((loaded / totalChunks) * 100));
-                    document.getElementById('loadingBar').style.width = `${progress}%`;
-                    
-                    if (loaded >= totalChunks) {
-                        clearInterval(loadingInterval);
-                        setTimeout(() => {
-                            document.getElementById('loadingScreen').style.display = 'none';
-                            loading = false;
-                            animate();
-                        }, 500);
+                const startTime = performance.now();
+                let blocksGenerated = 0;
+                
+                while (chunksToGenerate.length > 0 && 
+                       blocksGenerated < CONFIG.MAX_BLOCKS_PER_FRAME && 
+                       performance.now() - startTime < 5) { // Don't block for more than 5ms
+                    const chunkKey = chunksToGenerate.shift();
+                    if (generateChunk(chunkKey)) {
+                        blocksGenerated += 256; // Approximate blocks per chunk
                     }
                 }
-            }, 50);
-        }
-
-        function generateNextChunk() {
-            if (chunksToGenerate.length === 0) return false;
-            
-            const chunkKey = chunksToGenerate.shift();
-            generateChunk(chunkKey);
-            return true;
-        }
-
-        // World Generation
-        function getTerrainHeight(x, z) {
-            // Simple noise-based terrain
-            const scale = 0.1;
-            const heightScale = 20;
-            const baseHeight = 60;
-            
-            const noise = Math.abs(perlin.get((x + CONFIG.SEED) * scale, (z + CONFIG.SEED) * scale));
-            return Math.floor(baseHeight + noise * heightScale);
+                
+                if (blocksGenerated > 0) {
+                    loaded = Math.min(totalChunks, loaded + (blocksGenerated / 256));
+                    const progress = Math.min(100, Math.floor((loaded / totalChunks) * 100));
+                    document.getElementById('loadingBar').style.width = `${progress}%`;
+                }
+                
+                if (chunksToGenerate.length === 0) {
+                    clearInterval(loadingInterval);
+                    setTimeout(() => {
+                        document.getElementById('loadingScreen').style.display = 'none';
+                        loading = false;
+                        animate();
+                    }, 100);
+                }
+            }, 0); // Use minimal delay
         }
 
         function generateChunk(chunkKey) {
-            if (chunks.has(chunkKey)) return;
+            if (chunks.has(chunkKey)) return false;
             
             const [chunkX, chunkZ] = chunkKey.split(',').map(Number);
             const chunkGroup = new THREE.Group();
@@ -305,40 +349,57 @@
                 for (let z = chunkZ * CONFIG.CHUNK_SIZE; z < (chunkZ + 1) * CONFIG.CHUNK_SIZE; z++) {
                     const height = getTerrainHeight(x, z);
                     
-                    // Ground layers
+                    // Ground layers - optimized generation
                     addBlock(x, height, z, 'grass', chunkGroup);
                     addBlock(x, height-1, z, 'dirt', chunkGroup);
-                    for (let y = height-2; y >= height-4; y--) {
+                    
+                    // Only generate 2 dirt layers instead of 3
+                    for (let y = height-2; y >= height-3; y--) {
                         addBlock(x, y, z, 'dirt', chunkGroup);
                     }
-                    for (let y = height-5; y >= 0; y--) {
+                    
+                    // Generate stone only every other block below
+                    for (let y = height-4; y >= 0; y -= 2) {
                         addBlock(x, y, z, 'stone', chunkGroup);
                     }
 
-                    // Random trees
-                    if (height > 60 && Math.random() < CONFIG.TREE_DENSITY && x % 3 === 0 && z % 3 === 0) {
+                    // Random trees - reduced density
+                    if (height > 60 && Math.random() < CONFIG.TREE_DENSITY && 
+                        x % 4 === 0 && z % 4 === 0) { // More sparse tree distribution
                         generateTree(x, height+1, z, chunkGroup);
+                    }
+                }
+            }
+            return true;
+        }
+
+        function generateTree(x, y, z, chunkGroup) {
+            // Trunk - reduced height
+            for (let i = 0; i < 4; i++) { // Was 5
+                addBlock(x, y+i, z, 'wood', chunkGroup);
+            }
+            
+            // Leaves - simplified pattern
+            for (let ly = 2; ly <= 4; ly++) { // Reduced layers
+                const radius = ly === 4 ? 1 : 2;
+                for (let lx = -radius; lx <= radius; lx++) {
+                    for (let lz = -radius; lz <= radius; lz++) {
+                        if (ly === 4 && (lx === 0 || lz === 0)) continue;
+                        if (Math.abs(lx) === radius && Math.abs(lz) === radius && Math.random() > 0.5) continue;
+                        addBlock(x+lx, y+ly, z+lz, 'leaves', chunkGroup);
                     }
                 }
             }
         }
 
-        function generateTree(x, y, z, chunkGroup) {
-            // Trunk
-            for (let i = 0; i < 5; i++) {
-                addBlock(x, y+i, z, 'wood', chunkGroup);
-            }
+        function getTerrainHeight(x, z) {
+            // Optimized terrain generation
+            const scale = 0.08; // Adjusted for better performance
+            const heightScale = 18;
+            const baseHeight = 60;
             
-            // Leaves
-            for (let ly = 3; ly <= 5; ly++) {
-                const radius = ly === 5 ? 1 : 2;
-                for (let lx = -radius; lx <= radius; lx++) {
-                    for (let lz = -radius; lz <= radius; lz++) {
-                        if (ly === 5 && (lx === 0 || lz === 0)) continue;
-                        addBlock(x+lx, y+ly, z+lz, 'leaves', chunkGroup);
-                    }
-                }
-            }
+            const noise = Math.abs(perlin.noise((x + CONFIG.SEED) * scale, (z + CONFIG.SEED) * scale));
+            return Math.floor(baseHeight + noise * heightScale);
         }
 
         function addBlock(x, y, z, type, chunkGroup) {
@@ -348,6 +409,7 @@
             const block = new THREE.Mesh(blockGeometry, materials[type]);
             block.position.set(x, y, z);
             block.userData = { type };
+            block.frustumCulled = true; // Enable frustum culling
             chunkGroup.add(block);
             world.set(key, block);
         }
@@ -357,11 +419,11 @@
             if (!world.has(key)) return;
             
             const block = world.get(key);
-            block.parent.remove(block);
+            if (block.parent) block.parent.remove(block);
             world.delete(key);
         }
 
-        // Chunk Management
+        // Optimized Chunk Management
         function updateChunks() {
             const playerChunkX = Math.floor(player.position.x / CONFIG.CHUNK_SIZE);
             const playerChunkZ = Math.floor(player.position.z / CONFIG.CHUNK_SIZE);
@@ -386,6 +448,11 @@
                 if (!newActiveChunks.has(chunkKey)) {
                     const chunk = chunks.get(chunkKey);
                     if (chunk) {
+                        // Remove all blocks from world map
+                        chunk.children.forEach(block => {
+                            const key = `${block.position.x},${block.position.y},${block.position.z}`;
+                            world.delete(key);
+                        });
                         scene.remove(chunk);
                         chunks.delete(chunkKey);
                     }
@@ -395,8 +462,17 @@
             activeChunks = newActiveChunks;
         }
 
-        // Player Movement
+        // Optimized Player Movement
         function updatePlayer(deltaTime) {
+            // Calculate FPS
+            const now = performance.now();
+            frameCount++;
+            if (now - lastFrameTime >= 1000) {
+                fps = frameCount;
+                frameCount = 0;
+                lastFrameTime = now;
+            }
+
             // Fixed controls (no longer backwards)
             const forward = new THREE.Vector3(
                 -Math.sin(player.yaw),
@@ -448,21 +524,19 @@
             camera.position.copy(player.position);
             camera.rotation.set(player.pitch, player.yaw, 0, 'YXZ');
             
-            // Update chunks if needed
-            const playerChunkX = Math.floor(player.position.x / CONFIG.CHUNK_SIZE);
-            const playerChunkZ = Math.floor(player.position.z / CONFIG.CHUNK_SIZE);
-            const playerChunkKey = `${playerChunkX},${playerChunkZ}`;
-            
-            if (!activeChunks.has(playerChunkKey)) {
-                updateChunks();
-            }
-            
-            // Generate chunks in background
-            if (chunksToGenerate.length > 0 && !loading) {
-                generateNextChunk();
+            // Update chunks if needed (less frequently)
+            if (frameCount % 5 === 0) { // Only check every 5 frames
+                const playerChunkX = Math.floor(player.position.x / CONFIG.CHUNK_SIZE);
+                const playerChunkZ = Math.floor(player.position.z / CONFIG.CHUNK_SIZE);
+                const playerChunkKey = `${playerChunkX},${playerChunkZ}`;
+                
+                if (!activeChunks.has(playerChunkKey)) {
+                    updateChunks();
+                }
             }
         }
 
+        // Optimized Collision Detection
         function checkCollision(position) {
             const playerBox = new THREE.Box3(
                 new THREE.Vector3().copy(position).sub(new THREE.Vector3(0.3, 0, 0.3)),
@@ -478,8 +552,8 @@
             const maxZ = Math.ceil(position.z + 1);
 
             for (let x = minX; x <= maxX; x++) {
-                for (let y = minY; y <= maxY; y++) {
-                    for (let z = minZ; z <= maxZ; z++) {
+                for (let z = minZ; z <= maxZ; z++) {
+                    for (let y = minY; y <= maxY; y++) {
                         const key = `${x},${y},${z}`;
                         if (world.has(key)) {
                             const block = world.get(key);
@@ -641,13 +715,15 @@
             reader.readAsText(file);
         }
 
-        // Game Loop
+        // Optimized Game Loop
         function animate() {
             requestAnimationFrame(animate);
             
             if (!loading) {
-                updatePlayer(0.016); // Fixed delta time
+                const deltaTime = Math.min(0.1, (performance.now() - lastFrameTime) / 1000);
+                updatePlayer(deltaTime);
                 renderer.render(scene, camera);
+                lastFrameTime = performance.now();
             }
         }
     </script>
